@@ -151,13 +151,22 @@ def check_log(msg):
         if drill not in DRILL_STATES:
             return None, "drill_state must be one of " + ", ".join(DRILL_STATES)
 
+    # same limits as check_drill, a log with drill fields updates the drill panel too
+    depth = as_float(msg, "hole_depth")
+    if not in_range(depth, 0.0, 5.0):
+        return None, "hole_depth out of range (0 to 5 m)"
+
+    trigger = as_float(msg, "trigger_pressure")
+    if not in_range(trigger, 0.0, 100.0):
+        return None, "trigger_pressure out of range"
+
     row = {
         "level": level,
         "component": component,
         "message": text,
         "drill_state": drill,
-        "hole_depth": as_float(msg, "hole_depth"),
-        "trigger_pressure": as_float(msg, "trigger_pressure"),
+        "hole_depth": depth,
+        "trigger_pressure": trigger,
     }
     return row, None
 

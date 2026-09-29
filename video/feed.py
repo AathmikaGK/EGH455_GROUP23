@@ -1,7 +1,5 @@
 import time
-
 from flask import Blueprint, Response
-
 import config
 from video import frames
 

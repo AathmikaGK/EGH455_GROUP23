@@ -360,7 +360,9 @@ function DrillPanel(props) {
         h("span", { className: "pill " + state }, drill ? state : "no data"),
         h("div", { className: "drill-facts" },
           h("div", null, "hole depth  ",
-            h("b", null, drill ? num(drill.hole_depth * 1000, 1) + " mm" : "--")),
+            // null * 1000 is 0 in js, so check first or a missing depth shows 0.0 mm
+            h("b", null, drill && has(drill.hole_depth)
+              ? num(drill.hole_depth * 1000, 1) + " mm" : "--")),
           h("div", null, "trigger  ",
             h("b", null, num(drill && has(drill.trigger_pressure)
               ? drill.trigger_pressure : props.limit, 1) + " bar")),
@@ -545,6 +547,10 @@ function App() {
     .map(function (key) { return data.markers[key]; });
 
   var limit = has(data.info.drill_bar) ? data.info.drill_bar : 2.0;
+  // the trigger the drill reports wins, so the gauge mark matches the drill panel
+  if (data.drill && has(data.drill.trigger_pressure)) {
+    limit = data.drill.trigger_pressure;
+  }
 
   return h("div", null,
     h(Header, {
