@@ -21,7 +21,7 @@ def main():
 
         display_controller.update(reading)
 
-        #time.sleep(0.1)
+        time.sleep(0.1)
 
 
 if __name__ == "__main__":
