@@ -310,30 +310,31 @@ function ReadingTiles(props) {
     h(Tile, { name: "pressure", value: num(r.pressure, 0), unit: "hPa" }),
     h(Tile, { name: "humidity", value: num(r.humidity, 0), unit: "%RH" }),
     h(Tile, { name: "light", value: num(r.light, 0), unit: "lux" }),
-    h(Tile, { name: "oxidising", value: num(r.oxidising_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "reducing", value: num(r.reducing_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "ammonia nh3", value: num(r.ammonia_ppm, 1), unit: "ppm" }),
+    h(Tile, { name: "proximity", value: num(r.proximity, 0), unit: "" }),
+    h(Tile, { name: "oxidising", value: num(r.oxidising, 2), unit: "" }),
+    h(Tile, { name: "reducing", value: num(r.reducing, 2), unit: "" }),
+    h(Tile, { name: "nh3", value: num(r.nh3, 2), unit: "" }),
     h(Tile, { name: "samples", value: grouped(props.samples), unit: "rows", accent: true }));
 }
 
 function AirPanel(props) {
   var rows = props.rows;
-  var labels = rows.map(function (row) { return clockOf(row.ts); });
+  var labels = rows.map(function (row) { return clockOf(row.timestamp); });
 
   var gas = [
-    { name: "Oxidising", colour: TEAL, data: column(rows, "oxidising_ppm") },
-    { name: "Reducing", colour: PALE, data: column(rows, "reducing_ppm") },
-    { name: "Ammonia", colour: AMBER, data: column(rows, "ammonia_ppm") }
+    { name: "oxidising", colour: TEAL, data: column(rows, "oxidising") },
+    { name: "reducing", colour: PALE, data: column(rows, "reducing") },
+    { name: "nh3", colour: AMBER, data: column(rows, "nh3") }
   ];
 
   var climate = [
-    { name: "Temp C", colour: WHITE, data: column(rows, "temperature") },
-    { name: "Humidity %", colour: TEAL, data: column(rows, "humidity"), axis: "y2" }
+    { name: "temperature", colour: WHITE, data: column(rows, "temperature") },
+    { name: "humidity", colour: TEAL, data: column(rows, "humidity"), axis: "y2" }
   ];
 
   return h("div", { className: "section" },
     h("h2", null, "Air Quality Trends"),
-    h(ChartHead, { name: "Gas concentration (ppm)", series: gas }),
+    h(ChartHead, { name: "AQ gas readings", series: gas }),
     h(LineChart, { labels: labels, series: gas }),
     h(ChartHead, { name: "Temperature & Humidity", series: climate }),
     h(LineChart, { labels: labels, series: climate, twoAxis: true }));

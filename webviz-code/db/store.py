@@ -52,13 +52,12 @@ def save_reading(row):
     keep_in_memory("readings", row)
     if not db_ok:
         return
-    sql = ("INSERT INTO readings (ts, temperature, pressure, humidity, light, "
-           "oxidising_ohms, oxidising_ppm, reducing_ohms, reducing_ppm, "
-           "ammonia_ohms, ammonia_ppm) "
-           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
-    vals = (row["ts"], row["temperature"], row["pressure"], row["humidity"], row["light"],
-            row["oxidising_ohms"], row["oxidising_ppm"], row["reducing_ohms"],
-            row["reducing_ppm"], row["ammonia_ohms"], row["ammonia_ppm"])
+        sql = ("INSERT INTO readings (ts, `timestamp`, temperature, humidity, pressure, "
+            "light, proximity, oxidising, reducing, nh3) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+        vals = (row["ts"], row["timestamp"], row["temperature"], row["humidity"],
+             row["pressure"], row["light"], row["proximity"], row["oxidising"],
+             row["reducing"], row["nh3"])
     run_insert(sql, vals)
 
 
@@ -134,7 +133,7 @@ def clean_row(row):
     out = {}
     for k, v in row.items():
         if isinstance(v, datetime):
-            out[k] = to_iso(v)
+            out[k] = v.isoformat(timespec="microseconds") if k == "timestamp" else to_iso(v)
         else:
             out[k] = v
     return out

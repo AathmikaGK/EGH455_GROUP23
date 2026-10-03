@@ -13,25 +13,24 @@ Database `wvs` (MariaDB, InnoDB, utf8mb4), created by `python -m db.init` from
 [db/schema.sql](db/schema.sql). The app logs in as `webviz` with
 SELECT/INSERT/UPDATE/DELETE only. If MariaDB is not reachable the same rows are kept in memory (last `WVS_MEM_ROWS` per table, default 20000).
 
-Every table has a `ts DATETIME(3)` column. It is stamped by the Pi when the
-message arrives, so senders do not send a time.
+Every table has a `ts DATETIME(3)` column for server arrival time. AQ readings
+also retain their source `timestamp` in the readings table.
 
 ### `readings` - air quality from the Enviro+ board
 
 | Column | Type | Null | Unit / notes |
 
 | `id` | BIGINT AUTO_INCREMENT | no | primary key |
-| `ts` | DATETIME(3) | no | arrival time, indexed (`idx_readings_ts`) |
+| `ts` | DATETIME(3) | no | webviz arrival time |
+| `timestamp` | DATETIME(6) | no | AQ source time, indexed |
 | `temperature` | FLOAT | yes | degrees C |
 | `pressure` | FLOAT | yes | hPa |
 | `humidity` | FLOAT | yes | % RH |
 | `light` | FLOAT | yes | lux |
-| `oxidising_ohms` | FLOAT | yes | raw resistance, ohms |
-| `oxidising_ppm` | FLOAT | yes | estimated ppm |
-| `reducing_ohms` | FLOAT | yes | ohms |
-| `reducing_ppm` | FLOAT | yes | ppm |
-| `ammonia_ohms` | FLOAT | yes | ohms |
-| `ammonia_ppm` | FLOAT | yes | ppm |
+| `proximity` | INT | yes | AQ proximity reading |
+| `oxidising` | FLOAT | yes | AQ reading |
+| `reducing` | FLOAT | yes | AQ reading |
+| `nh3` | FLOAT | yes | AQ reading |
 
 ### `detections` - one row per target found by the detection subsystem
 
@@ -68,8 +67,8 @@ message arrives, so senders do not send a time.
 All ingestion is `POST` with `Content-Type: application/json`, to
 `http://<pi>/api/ingest/<kind>`. The body is either **one object** or **a list
 of objects** of the same kind (batch). Unknown fields are ignored. Numbers may
-be sent as JSON numbers or numeric strings. Do not send a timestamp, the Pi adds
-it.
+be sent as JSON numbers or numeric strings. The readings endpoint accepts the
+AQ JSON fields directly; the server separately records arrival time in `ts`.
 
 | Kind | URL | Stored in |
 
@@ -81,8 +80,8 @@ it.
 
 ### Reading - `POST /api/ingest/reading`
 
-Every field is optional but at least one must be present. Values outside the
-range are rejected.
+Send the reading object emitted by AQ. `timestamp` must be an ISO-formatted
+source timestamp. Values outside the range are rejected.
 
 | Field | Type | Range |
 
@@ -90,23 +89,11 @@ range are rejected.
 | `pressure` | number | 300 to 1100 |
 | `humidity` | number | 0 to 100 |
 | `light` | number | 0 to 100000 |
-| `oxidising_ohms`, `reducing_ohms`, `ammonia_ohms` | number | 0 to 10000000 |
-| `oxidising_ppm`, `reducing_ppm`, `ammonia_ppm` | number | 0 to 1000 |
+| `timestamp` | string | ISO-formatted AQ source time |
+| `proximity` | integer | AQ value |
+| `oxidising`, `reducing`, `nh3` | number | 0 to 10000000 |
 
-```json
-{
-  "temperature": 24.3,
-  "pressure": 1012.6,
-  "humidity": 41.2,
-  "light": 356.0,
-  "oxidising_ohms": 21540.0,
-  "oxidising_ppm": 0.82,
-  "reducing_ohms": 312000.0,
-  "reducing_ppm": 2.10,
-  "ammonia_ohms": 98000.0,
-  "ammonia_ppm": 0.64
-}
-```
+The AQ sender posts this object unchanged; webviz does not derive ppm values.
 
 ### Detection - `POST /api/ingest/detection`
 

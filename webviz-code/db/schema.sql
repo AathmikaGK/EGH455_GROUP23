@@ -6,21 +6,21 @@ CREATE DATABASE IF NOT EXISTS wvs
 
 USE wvs;
 
--- air quality readings from the enviro+ board
+-- AQ readings retain the field names and values emitted by SensorController.
 CREATE TABLE IF NOT EXISTS readings (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    ts              DATETIME(3) NOT NULL,
+    ts              DATETIME(3) NOT NULL COMMENT 'webviz arrival time',
+    `timestamp`     DATETIME(6) NOT NULL COMMENT 'AQ source timestamp',
     temperature     FLOAT NULL COMMENT 'degrees C',
     pressure        FLOAT NULL COMMENT 'hPa',
     humidity        FLOAT NULL COMMENT 'percent RH',
     light           FLOAT NULL COMMENT 'lux',
-    oxidising_ohms  FLOAT NULL COMMENT 'raw resistance, ohms',
-    oxidising_ppm   FLOAT NULL COMMENT 'estimated ppm',
-    reducing_ohms   FLOAT NULL,
-    reducing_ppm    FLOAT NULL,
-    ammonia_ohms    FLOAT NULL,
-    ammonia_ppm     FLOAT NULL,
-    KEY idx_readings_ts (ts)
+    proximity       INT NULL,
+    oxidising       FLOAT NULL,
+    reducing        FLOAT NULL,
+    nh3             FLOAT NULL,
+    KEY idx_readings_ts (ts),
+    KEY idx_readings_source_timestamp (`timestamp`)
 ) ENGINE=InnoDB;
 
 -- one row per target the detection subsystem finds

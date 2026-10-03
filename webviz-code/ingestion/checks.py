@@ -1,3 +1,5 @@
+from datetime import datetime
+
 # checks every message before it reaches the database, returns (row, error)
 
 READING_LIMITS = {
@@ -5,12 +7,9 @@ READING_LIMITS = {
     "pressure": (300.0, 1100.0),
     "humidity": (0.0, 100.0),
     "light": (0.0, 100000.0),
-    "oxidising_ohms": (0.0, 10000000.0),
-    "oxidising_ppm": (0.0, 1000.0),
-    "reducing_ohms": (0.0, 10000000.0),
-    "reducing_ppm": (0.0, 1000.0),
-    "ammonia_ohms": (0.0, 10000000.0),
-    "ammonia_ppm": (0.0, 1000.0),
+    "oxidising": (0.0, 10000000.0),
+    "reducing": (0.0, 10000000.0),
+    "nh3": (0.0, 10000000.0),
 }
 
 DETECTION_TYPES = ["valve", "gauge", "aruco"]
@@ -55,9 +54,22 @@ def check_reading(msg):
     if not isinstance(msg, dict):
         return None, "reading must be an object"
 
+    source_timestamp = as_text(msg, "timestamp", 40)
+    if source_timestamp is None:
+        return None, "reading needs an AQ timestamp"
+    try:
+        timestamp = datetime.fromisoformat(source_timestamp)
+    except ValueError:
+        return None, "timestamp must be an ISO-formatted date and time"
+
     row = {}
     for key in READING_LIMITS:
         row[key] = as_float(msg, key)
+
+    row["timestamp"] = timestamp
+    row["proximity"] = as_int(msg, "proximity")
+    if "proximity" in msg and row["proximity"] is None:
+        return None, "proximity must be an integer"
 
     got_one = False
     for key in READING_LIMITS:
