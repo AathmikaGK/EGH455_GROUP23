@@ -19,6 +19,7 @@ latest = {
     "valve": None,
     "gauge": None,
     "aruco": {},
+    "aruco_in_view": [],  # marker ids in the taq's last frame
     "drill": None,
     "log": None,
     "updated": None,
@@ -44,6 +45,8 @@ def remember(kind, row):
         if item["type"] == "aruco":
             # one entry per marker id, newest wins
             latest["aruco"][str(item["aruco_id"])] = item
+            if item["aruco_id"] not in latest["aruco_in_view"]:
+                latest["aruco_in_view"].append(item["aruco_id"])
         elif item["type"] == "valve":
             latest["valve"] = item
         else:
@@ -65,6 +68,17 @@ def publish(kind, row):
     with lock:
         item = remember(kind, row)
         send_to_all(make_event(kind, item))
+
+
+def note_aruco_view(view):
+    # sent after each taq frame, the ids in it replace the old view.
+    # an empty frame still counts as the taq being alive
+    with lock:
+        ids = sorted(set(view["ids"]))
+        latest["aruco_in_view"] = ids
+        latest["updated"] = store.to_iso(view["ts"])
+        latest["updated_at"] = time.time()
+        send_to_all(make_event("aruco_view", {"ts": latest["updated"], "ids": ids}))
 
 
 def note_frame(meta):
@@ -101,6 +115,7 @@ def snapshot():
             "valve": latest["valve"],
             "gauge": latest["gauge"],
             "aruco": markers,
+            "aruco_in_view": list(latest["aruco_in_view"]),
             "drill": latest["drill"],
             "logs": list(recent_logs),
             "frame": frames.frame_info(),

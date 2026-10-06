@@ -39,16 +39,21 @@ message arrives, so senders do not send a time.
 
 | `id` | BIGINT AUTO_INCREMENT | no | primary key |
 | `ts` | DATETIME(3) | no | arrival time, indexed |
-| `type` | ENUM('valve','gauge','aruco') | no | indexed with `ts` (`idx_detections_type_ts`) |
+| `type` | ENUM('valve','gauge','aruco') | no | default `aruco`, indexed with `ts` (`idx_detections_type_ts`) |
 | `valve_state` | ENUM('open','closed') | yes | valve rows only |
 | `gauge_value` | FLOAT | yes | gauge rows only |
 | `gauge_units` | VARCHAR(16) | yes | gauge rows only, defaults to `bar` |
-| `aruco_id` | INT | yes | aruco rows only |
-| `x` | FLOAT | yes | metres |
-| `y` | FLOAT | yes | metres |
-| `z` | FLOAT | yes | metres |
+| `aruco_id` | INT | yes | aruco rows only, the TAQ's `id`, indexed with `ts` (`idx_detections_aruco_ts`) |
+| `x` | DOUBLE | yes | metres, camera frame, right |
+| `y` | DOUBLE | yes | metres, camera frame, down |
+| `z` | DOUBLE | yes | metres, camera frame, distance out of the lens |
 | `confidence` | FLOAT | yes | 0 to 1 |
 | `frame_path` | VARCHAR(255) | yes | optional path of the saved frame |
+
+Every marker in one TAQ frame is one row, and all rows of a frame share the
+same `ts`. A frame with no markers writes no row. Running `python -m db.init`
+again updates a `detections` table made from the old schema (FLOAT x/y/z
+become DOUBLE, the `aruco_id` index is added); no rows are lost.
 
 ### `system_log` - messages from any subsystem, also carries the drill state
 
@@ -110,14 +115,38 @@ range are rejected.
 
 ### Detection - `POST /api/ingest/detection`
 
+#### TAQ ArUco frames
+
+The TAQ posts the marker list it prints, as it is, once per camera frame:
+
+```json
+[{ "id": 22, "x": 0.020056089636047512, "y": -0.05093316065253747, "z": 0.48600508787079516 }]
+```
+
+- `id` is taken as `aruco_id`, and a missing `type` means `aruco`.
+- A list of ArUco markers is **the whole view**. Markers that were in the last
+  frame but not this one show as lost on the dashboard.
+- A frame with nothing in it (`Detected IDs: None`) is sent as `[]` or `null`.
+  It writes no row but clears the view. Send it, otherwise the dashboard keeps
+  the old markers until they go stale (3 s).
+- `x`, `y`, `z` must be within -20 to 20 m. NaN is rejected.
+
+```python
+import requests
+# markers is the list the script prints, or None when nothing was detected
+requests.post("http://<pi>/api/ingest/detection", json=markers or [], timeout=0.5)
+```
+
+#### All detection fields
+
 | Field | Type | Required | Notes |
 
-| `type` | string | yes | `valve`, `gauge` or `aruco` |
+| `type` | string | no | `valve`, `gauge` or `aruco`. Defaults to `aruco` when `id`/`aruco_id` is sent |
 | `valve_state` | string | if `type` = valve | `open` or `closed` |
 | `gauge_value` | number | if `type` = gauge | -100 to 1000 |
 | `gauge_units` | string | no | max 16 chars, default `bar` |
-| `aruco_id` | integer | if `type` = aruco | 0 to 1023 |
-| `x`, `y`, `z` | number | no | metres |
+| `aruco_id` (or `id`) | integer | if `type` = aruco | 0 to 1023 |
+| `x`, `y`, `z` | number | no | metres, -20 to 20 |
 | `confidence` | number | no | 0 to 1 |
 | `frame_path` | string | no | max 255 chars |
 
@@ -178,7 +207,9 @@ know them.
 
 ### Batch
 
-Any of the JSON kinds can be sent as a list:
+Any of the JSON kinds can be sent as a list. A detection list is one camera
+frame: its rows share one `ts`, and if it holds only ArUco markers it also sets
+which markers are in view.
 
 ```json
 [
@@ -224,7 +255,7 @@ If the writer queue (2000 messages) is full, the message is rejected with
 | Endpoint | What it returns |
 
 | `GET /` | the dashboard |
-| `GET /stream` | SSE: `snapshot` on connect, then `reading`, `detection`, `log`, `frame` events |
+| `GET /stream` | SSE: `snapshot` on connect, then `reading`, `detection`, `aruco_view` (ids in the last TAQ frame), `log`, `frame` events |
 | `GET /video_feed` | MJPEG stream of the latest frame, "NO SIGNAL" card when quiet |
 | `GET /api/live` | the same snapshot `/stream` sends on connect |
 | `GET /api/history?type=readings\|detections\|system_log&from=&to=&limit=` | rows in a time range, oldest first. `from`/`to` are ISO or unix time, default the last 10 minutes, `limit` max 5000 |

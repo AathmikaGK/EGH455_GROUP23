@@ -7,13 +7,19 @@ var useRef = React.useRef;
 
 var POINTS = 90;        // how many samples the charts keep on screen
 var GAUGE_MAX = 4.0;    // top of the pressure meter, bar
+var POSE_POINTS = 150;  // the taq sends a pose every frame, so keep more of them
+var MARKER_STALE = 3;   // seconds without a pose before a marker counts as lost
 
-var TEAL = "#2fe0a8";
-var PALE = "#9ad5c0";
-var AMBER = "#f0a832";
-var WHITE = "#dfe7e4";
-var GRID = "#16211f";
-var DIM = "#40564f";
+// same blue and black as style.css
+var BLUE = "#1450c8";
+var SKY = "#6b9be8";
+var BLACK = "#0b1220";
+var GRID = "#e3eaf4";
+var DIM = "#5b6b82";
+
+// same font list as style.css, chart.js draws its own text so it needs telling
+var FONT = '"WVS Sans", Calibri, Carlito, Arial, sans-serif';
+Chart.defaults.font.family = FONT;
 
 // little helpers
 function clockOf(iso) {
@@ -35,10 +41,6 @@ function pad(n) {
   return (n < 10 ? "0" : "") + n;
 }
 
-function utcNow() {
-  return new Date().toISOString().slice(11, 19);
-}
-
 function has(value) {
   return value !== null && value !== undefined && !isNaN(value);
 }
@@ -58,7 +60,7 @@ function grouped(value) {
 function HudItem(props) {
   return h("div", { className: "hud-item" },
     h("span", { className: "k" }, props.label),
-    h("span", { className: "v" + (props.accent ? " ip" : "") }, props.value));
+    h("span", { className: "v" }, props.value));
 }
 
 function streamState(props) {
@@ -72,13 +74,12 @@ function streamState(props) {
 }
 
 function Header(props) {
-  var info = props.info || {};
   var stream = streamState(props);
 
   return h("div", { className: "topbar" },
     h("div", { className: "brand" },
       h("span", { className: "name" }, "UAV PAYLOAD"),
-      h("span", { className: "sub" }, "GROUND CONTROL STATION")),
+      h("span", { className: "sub" }, "Web Interface")),
     h("div", { className: "spacer" }),
     h("div", { className: "hud" },
       h("div", { className: "hud-item" },
@@ -86,10 +87,7 @@ function Header(props) {
         h("span", { className: "lamp" + (stream.on ? "" : " off") },
           h("span", { className: "bulb" }),
           h("span", null, stream.text))),
-      h(HudItem, { label: "payload ip", value: info.payload_ip || "--", accent: true }),
-      h(HudItem, { label: "refresh", value: num(info.cadence, 1) + " s" }),
-      h(HudItem, { label: "log timer", value: props.timer }),
-      h(HudItem, { label: "utc", value: props.utc })));
+      h(HudItem, { label: "log timer", value: props.timer })));
 }
 
 // live detector feed
@@ -129,8 +127,8 @@ function ValveCard(props) {
 
   // the card only lights up once a real detection has come in
   var css = "card dark";
-  if (state === "open") { css = "card lit-teal"; }
-  if (state === "closed") { css = "card lit-amber"; }
+  if (state === "open") { css = "card lit-blue"; }
+  if (state === "closed") { css = "card lit-black"; }
 
   return h("div", { className: css },
     h("div", { className: "k" }, "ball valve"),
@@ -146,7 +144,7 @@ function GaugeCard(props) {
   var over = has(value) && value >= limit;
   var pct = has(value) ? Math.max(0, Math.min(100, (value / GAUGE_MAX) * 100)) : 0;
 
-  return h("div", { className: "card " + (gauge ? "lit-amber" : "dark") },
+  return h("div", { className: "card " + (gauge ? "lit-black" : "dark") },
     h("div", { className: "k" }, "pressure"),
     h("div", { className: "big" }, num(value, 1),
       h("span", { className: "unit" }, gauge ? gauge.gauge_units : "bar")),
@@ -160,29 +158,60 @@ function GaugeCard(props) {
       h("span", null, num(GAUGE_MAX, 1) + " bar")));
 }
 
+function range(m) {
+  // straight line distance from the lens to the marker
+  if (!has(m.x) || !has(m.y) || !has(m.z)) { return null; }
+  return Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
+}
+
 function ArucoCard(props) {
   var markers = props.markers || [];
+  var seen = markers.filter(function (m) { return props.inView(m.aruco_id); });
+
+  var head = h("div", { className: "k" }, "aruco - pose (m)",
+    h("span", { className: "count" + (seen.length ? " on" : "") },
+      seen.length + " in view"));
 
   if (markers.length === 0) {
-    return h("div", { className: "card" },
-      h("div", { className: "k" }, "aruco - pose (m)"),
-      h("div", { className: "empty" }, "no markers in view"));
+    return h("div", { className: "card" }, head,
+      h("div", { className: "empty" }, "no markers detected yet"));
   }
 
+  // markers that left the view stay listed, dimmed, with when they were last seen
   var rows = markers.map(function (m) {
-    return h("tr", { key: m.aruco_id },
+    var on = props.inView(m.aruco_id);
+    return h("tr", { key: m.aruco_id, className: on ? "" : "lost" },
       h("td", null, m.aruco_id),
       h("td", null, num(m.x, 3)),
       h("td", null, num(m.y, 3)),
-      h("td", null, num(m.z, 3)));
+      h("td", null, num(m.z, 3)),
+      h("td", null, num(range(m), 3)),
+      h("td", null, on ? "in view" : clockOf(m.ts)));
   });
 
-  return h("div", { className: "card" },
-    h("div", { className: "k" }, "aruco - pose (m)"),
+  return h("div", { className: "card" }, head,
     h("table", { style: { marginTop: "8px" } },
       h("thead", null, h("tr", null,
-        h("th", null, "id"), h("th", null, "x"), h("th", null, "y"), h("th", null, "z"))),
+        h("th", null, "id"), h("th", null, "x"), h("th", null, "y"), h("th", null, "z"),
+        h("th", null, "rng"), h("th", null, "seen"))),
       h("tbody", null, rows)));
+}
+
+function PosePanel(props) {
+  // the pose of the marker the taq saw last, x and y across the frame, z is depth
+  var rows = props.rows.filter(function (row) { return row.aruco_id === props.id; });
+  var labels = rows.map(function (row) { return clockOf(row.ts); });
+
+  var pose = [
+    { name: "x", colour: BLUE, data: column(rows, "x") },
+    { name: "y", colour: SKY, data: column(rows, "y") },
+    { name: "z (right axis)", colour: BLACK, data: column(rows, "z"), axis: "y2" }
+  ];
+
+  var name = has(props.id) ? "Marker " + props.id + " pose (m)" : "Marker pose (m)";
+  return h("div", null,
+    h(ChartHead, { name: name, series: pose }),
+    h(LineChart, { labels: labels, series: pose, twoAxis: true }));
 }
 
 function TargetPanel(props) {
@@ -191,7 +220,8 @@ function TargetPanel(props) {
     h("div", { className: "cards" },
       h(ValveCard, { valve: props.valve }),
       h(GaugeCard, { gauge: props.gauge, limit: props.limit }),
-      h(ArucoCard, { markers: props.markers })));
+      h(ArucoCard, { markers: props.markers, inView: props.inView })),
+    h(PosePanel, { rows: props.poseRows, id: props.poseId }));
 }
 
 // charts
@@ -199,14 +229,14 @@ function makeScales(props) {
   var axis = {
     grid: { color: GRID, drawTicks: false },
     border: { color: GRID },
-    ticks: { color: DIM, font: { size: 9 }, maxTicksLimit: 5, padding: 4 }
+    ticks: { color: DIM, font: { size: 11 }, maxTicksLimit: 5, padding: 4 }
   };
 
   var scales = {
     x: {
       grid: { color: GRID, drawTicks: false },
       border: { color: GRID },
-      ticks: { color: DIM, font: { size: 8 }, maxTicksLimit: 6, maxRotation: 0 }
+      ticks: { color: DIM, font: { size: 10 }, maxTicksLimit: 6, maxRotation: 0 }
     },
     y: axis
   };
@@ -217,7 +247,7 @@ function makeScales(props) {
       position: "right",
       grid: { drawOnChartArea: false },
       border: { color: GRID },
-      ticks: { color: DIM, font: { size: 9 }, maxTicksLimit: 5 }
+      ticks: { color: DIM, font: { size: 11 }, maxTicksLimit: 5 }
     };
   }
   return scales;
@@ -255,13 +285,13 @@ function LineChart(props) {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: "#0c1211",
-            borderColor: "#1a2422",
+            backgroundColor: "#ffffff",
+            borderColor: "#c9d6e8",
             borderWidth: 1,
-            titleColor: WHITE,
-            bodyColor: WHITE,
-            titleFont: { family: "monospace", size: 10 },
-            bodyFont: { family: "monospace", size: 10 }
+            titleColor: BLACK,
+            bodyColor: BLACK,
+            titleFont: { family: FONT, size: 12 },
+            bodyFont: { family: FONT, size: 12 }
           }
         }
       }
@@ -321,14 +351,14 @@ function AirPanel(props) {
   var labels = rows.map(function (row) { return clockOf(row.ts); });
 
   var gas = [
-    { name: "Oxidising", colour: TEAL, data: column(rows, "oxidising_ppm") },
-    { name: "Reducing", colour: PALE, data: column(rows, "reducing_ppm") },
-    { name: "Ammonia", colour: AMBER, data: column(rows, "ammonia_ppm") }
+    { name: "Oxidising", colour: BLUE, data: column(rows, "oxidising_ppm") },
+    { name: "Reducing", colour: SKY, data: column(rows, "reducing_ppm") },
+    { name: "Ammonia", colour: BLACK, data: column(rows, "ammonia_ppm") }
   ];
 
   var climate = [
-    { name: "Temp C", colour: WHITE, data: column(rows, "temperature") },
-    { name: "Humidity %", colour: TEAL, data: column(rows, "humidity"), axis: "y2" }
+    { name: "Temp C", colour: BLACK, data: column(rows, "temperature") },
+    { name: "Humidity %", colour: BLUE, data: column(rows, "humidity"), axis: "y2" }
   ];
 
   return h("div", { className: "section" },
@@ -388,6 +418,13 @@ function column(rows, name) {
   return rows.map(function (row) { return row[name]; });
 }
 
+function addPose(setPoses, row) {
+  setPoses(function (old) {
+    var next = old.concat([row]);
+    return next.length > POSE_POINTS ? next.slice(-POSE_POINTS) : next;
+  });
+}
+
 function addReading(setRows, row) {
   setRows(function (old) {
     // the snapshot and the history both carry the newest one, so check the time
@@ -408,25 +445,26 @@ function mergeHistory(old, rows) {
 // the page
 function App() {
   var [data, setData] = useState({
-    info: {}, reading: null, valve: null, gauge: null, markers: {},
+    info: {}, reading: null, valve: null, gauge: null, markers: {}, inView: [],
     drill: null, logs: [], frame: {}, samples: null, updated: null
   });
   var [live, setLive] = useState(false);
   var [rows, setRows] = useState([]);
+  var [poses, setPoses] = useState([]);
   var [clock, setClock] = useState({
-    timer: "00:00:00", utc: utcNow(), rec: "00:00:00", quiet: null
+    timer: "00:00:00", rec: "00:00:00", quiet: null
   });
 
   var startedAt = useRef(Date.now());
   var recFrom = useRef(null);
   var lastAt = useRef(null);
+  var markerAt = useRef({});   // marker id -> Date.now() its last pose arrived
 
   // the header clocks tick on their own, they are not data from the payload
   useEffect(function () {
     var id = setInterval(function () {
       setClock({
         timer: countUp(Date.now() - startedAt.current),
-        utc: utcNow(),
         rec: recFrom.current ? countUp(Date.now() - recFrom.current) : "00:00:00",
         quiet: lastAt.current ? (Date.now() - lastAt.current) / 1000 : null
       });
@@ -445,6 +483,20 @@ function App() {
       .catch(function () {
         // nothing logged yet, the stream will fill the charts in instead
       });
+
+    // same for the pose chart, only the aruco rows are wanted
+    fetch("/api/history?type=detections&limit=" + POSE_POINTS * 2)
+      .then(function (res) { return res.json(); })
+      .then(function (body) {
+        if (!body.ok) { return; }
+        var old = body.rows.filter(function (row) { return row.type === "aruco"; });
+        setPoses(function (now) {
+          // the stream may already have sent some, keep those after the history
+          var fresh = now.filter(function (row) { return !hasTime(old, row.ts); });
+          return old.concat(fresh).slice(-POSE_POINTS);
+        });
+      })
+      .catch(function () {});
   }, []);
 
   // the live push connection, everything on the page comes through here
@@ -465,12 +517,16 @@ function App() {
       setData(function (old) {
         var markers = {};
         (snap.aruco || []).forEach(function (m) { markers[m.aruco_id] = m; });
+        var at = snap.quiet !== null && snap.quiet !== undefined
+          ? Date.now() - snap.quiet * 1000 : Date.now();
+        (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
         return {
           info: snap,
           reading: snap.reading,
           valve: snap.valve,
           gauge: snap.gauge,
           markers: markers,
+          inView: snap.aruco_in_view || [],
           drill: snap.drill,
           logs: snap.logs || [],
           frame: snap.frame || {},
@@ -506,8 +562,24 @@ function App() {
         } else {
           next.markers = Object.assign({}, old.markers);
           next.markers[row.aruco_id] = row;
+          if (old.inView.indexOf(row.aruco_id) < 0) {
+            next.inView = old.inView.concat([row.aruco_id]);
+          }
         }
         return next;
+      });
+      if (row.type === "aruco") {
+        markerAt.current[row.aruco_id] = Date.now();
+        addPose(setPoses, row);
+      }
+    });
+
+    es.addEventListener("aruco_view", function (ev) {
+      // comes after every taq frame, the ids in it are the only ones in view now
+      var view = JSON.parse(ev.data);
+      lastAt.current = Date.now();
+      setData(function (old) {
+        return Object.assign({}, old, { inView: view.ids, updated: view.ts });
       });
     });
 
@@ -546,6 +618,14 @@ function App() {
     .sort(function (a, b) { return a - b; })
     .map(function (key) { return data.markers[key]; });
 
+  // in the last frame and heard from recently, so a taq that stops sending
+  // does not leave its markers showing as in view forever
+  function inView(id) {
+    var at = markerAt.current[id];
+    return data.inView.indexOf(id) >= 0 && !!at && (Date.now() - at) / 1000 < MARKER_STALE;
+  }
+  var poseId = poses.length ? poses[poses.length - 1].aruco_id : null;
+
   var limit = has(data.info.drill_bar) ? data.info.drill_bar : 2.0;
   // the trigger the drill reports wins, so the gauge mark matches the drill panel
   if (data.drill && has(data.drill.trigger_pressure)) {
@@ -555,13 +635,14 @@ function App() {
   return h("div", null,
     h(Header, {
       info: data.info, live: live, quiet: clock.quiet,
-      timer: clock.timer, utc: clock.utc
+      timer: clock.timer
     }),
     h("div", { className: "main" },
       h("div", { className: "col" },
         h(FeedPanel, { frame: data.frame, rec: clock.rec }),
         h(TargetPanel, {
-          valve: data.valve, gauge: data.gauge, markers: markerList, limit: limit
+          valve: data.valve, gauge: data.gauge, markers: markerList, limit: limit,
+          inView: inView, poseRows: poses, poseId: poseId
         })),
       h("div", { className: "col right" },
         h(AirPanel, { rows: rows }),

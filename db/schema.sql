@@ -23,25 +23,38 @@ CREATE TABLE IF NOT EXISTS readings (
     KEY idx_readings_ts (ts)
 ) ENGINE=InnoDB;
 
--- one row per target the detection subsystem finds
+-- one row per target the detection subsystem finds - TAQ
+-- the taq sends one list per camera frame, [{"id": 22, "x": .., "y": .., "z": ..}],
+-- each marker in the list is a row and they all share the frame's ts.
+-- a frame with no markers (None / []) writes no row
 CREATE TABLE IF NOT EXISTS detections (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     ts           DATETIME(3) NOT NULL,
-    type         ENUM('valve','gauge','aruco') NOT NULL,
+    type         ENUM('valve','gauge','aruco') NOT NULL DEFAULT 'aruco',
     valve_state  ENUM('open','closed') NULL,
     gauge_value  FLOAT NULL,
     gauge_units  VARCHAR(16) NULL,
-    aruco_id     INT NULL,
-    x            FLOAT NULL COMMENT 'metres',
-    y            FLOAT NULL COMMENT 'metres',
-    z            FLOAT NULL COMMENT 'metres',
+    aruco_id     INT NULL COMMENT 'taq sends this as id',
+    x            DOUBLE NULL COMMENT 'metres, camera frame, right',
+    y            DOUBLE NULL COMMENT 'metres, camera frame, down',
+    z            DOUBLE NULL COMMENT 'metres, camera frame, out of the lens',
     confidence   FLOAT NULL COMMENT '0 to 1',
     frame_path   VARCHAR(255) NULL,
     KEY idx_detections_ts (ts),
-    KEY idx_detections_type_ts (type, ts)
+    KEY idx_detections_type_ts (type, ts),
+    KEY idx_detections_aruco_ts (aruco_id, ts)
 ) ENGINE=InnoDB;
 
--- general messages from any subsystem, also carries the drill state
+-- brings a table made from the old schema up to date, safe to run again
+ALTER TABLE detections
+    MODIFY type ENUM('valve','gauge','aruco') NOT NULL DEFAULT 'aruco',
+    MODIFY aruco_id INT NULL COMMENT 'taq sends this as id',
+    MODIFY x DOUBLE NULL COMMENT 'metres, camera frame, right',
+    MODIFY y DOUBLE NULL COMMENT 'metres, camera frame, down',
+    MODIFY z DOUBLE NULL COMMENT 'metres, camera frame, out of the lens',
+    ADD KEY IF NOT EXISTS idx_detections_aruco_ts (aruco_id, ts);
+
+-- carries the drill state
 CREATE TABLE IF NOT EXISTS system_log (
     id               BIGINT AUTO_INCREMENT PRIMARY KEY,
     ts               DATETIME(3) NOT NULL,

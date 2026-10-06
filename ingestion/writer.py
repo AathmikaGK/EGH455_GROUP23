@@ -48,7 +48,46 @@ def send_to_writer(kind, msg):
     return True, None
 
 
+def send_targets(items):
+    # one camera frame from the taq. every target gets the same ts, so the
+    # rows of one frame line up in the history. returns (taken, problems)
+    stamp = now_ms()
+    rows = []
+    problems = []
+    for i, msg in enumerate(items):
+        row, err = checks.check_detection(msg)
+        if row is None:
+            counts["bad"] = counts["bad"] + 1
+            problems.append({"index": i, "error": err})
+            continue
+        row["ts"] = stamp
+        rows.append(row)
+
+    jobs = [("detection", row) for row in rows]
+    # a list of only aruco markers (or an empty one) is the whole view, so the
+    # dashboard can drop markers that left it. mixed batches leave it alone
+    if len(problems) == 0 and all(row["type"] == "aruco" for row in rows):
+        jobs.append(("aruco_view", {"ts": stamp, "ids": [row["aruco_id"] for row in rows]}))
+
+    taken = 0
+    for job in jobs:
+        try:
+            inbox.put_nowait(job)
+        except queue.Full:
+            counts["dropped"] = counts["dropped"] + 1
+            problems.append({"index": None, "error": "writer queue is full"})
+            break
+        if job[0] == "detection":
+            taken = taken + 1
+    return taken, problems
+
+
 def write_row(kind, row):
+    # no table for this one, it only tells the dashboards which markers are in view
+    if kind == "aruco_view":
+        bus.note_aruco_view(row)
+        return
+
     # one message, one row, then the dashboards get told about it
     if kind == "reading":
         store.save_reading(row)

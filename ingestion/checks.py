@@ -1,3 +1,5 @@
+import math
+
 # checks every message before it reaches the database, returns (row, error)
 
 READING_LIMITS = {
@@ -18,15 +20,22 @@ VALVE_STATES = ["open", "closed"]
 LOG_LEVELS = ["info", "warning", "error"]
 DRILL_STATES = ["idle", "drilling", "done"]
 
+# a pose further than this from the camera is a bad solve, not a marker
+POSE_LIMIT_M = 20.0
+
 
 def as_float(msg, key):
     # a number from the message, None if missing or not a number
     if key not in msg or msg[key] is None:
         return None
     try:
-        return float(msg[key])
+        value = float(msg[key])
     except (TypeError, ValueError):
         return None
+    # python json lets NaN through and mariadb refuses it, so drop it here
+    if not math.isfinite(value):
+        return None
+    return value
 
 
 def as_int(msg, key):
@@ -77,6 +86,9 @@ def check_detection(msg):
         return None, "detection must be an object"
 
     kind = as_text(msg, "type", 16)
+    if kind is None and ("aruco_id" in msg or "id" in msg):
+        # the taq aruco script sends {"id", "x", "y", "z"} with no type
+        kind = "aruco"
     if kind is None:
         return None, "detection needs a type"
     kind = kind.lower()
@@ -98,6 +110,10 @@ def check_detection(msg):
 
     if not in_range(row["confidence"], 0.0, 1.0):
         return None, "confidence must be between 0 and 1"
+
+    for axis in ["x", "y", "z"]:
+        if not in_range(row[axis], -POSE_LIMIT_M, POSE_LIMIT_M):
+            return None, "%s out of range (-%g to %g m)" % (axis, POSE_LIMIT_M, POSE_LIMIT_M)
 
     # each target type carries its own extra field
     if kind == "valve":
@@ -121,7 +137,9 @@ def check_detection(msg):
     if kind == "aruco":
         marker = as_int(msg, "aruco_id")
         if marker is None:
-            return None, "aruco detection needs aruco_id"
+            marker = as_int(msg, "id")
+        if marker is None:
+            return None, "aruco detection needs aruco_id (or id)"
         if marker < 0 or marker > 1023:
             return None, "aruco_id out of range"
         row["aruco_id"] = marker

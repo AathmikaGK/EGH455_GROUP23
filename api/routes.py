@@ -121,8 +121,15 @@ def ingest(kind):
         return jsonify({"ok": False, "error": "unknown ingest type " + kind}), 404
 
     msg = request.get_json(silent=True)
+    if msg is None and KINDS[kind] == "detection" and request.data.strip() == b"null":
+        # the taq has None for a frame with no markers, json null means the same
+        msg = []
     if msg is None:
         return jsonify({"ok": False, "error": "body must be json"}), 400
+
+    # the taq posts one list per camera frame, so a detection list is a frame
+    if isinstance(msg, list) and KINDS[kind] == "detection":
+        return ingest_targets(msg)
 
     # a subsystem can send a list in one post instead of one at a time
     if isinstance(msg, list):
@@ -148,6 +155,17 @@ def ingest_many(kind, items):
     if problems:
         body["problems"] = problems[:10]
     if taken == 0:
+        return jsonify(body), 400
+    return jsonify(body), 202
+
+
+def ingest_targets(items):
+    # an empty list is a frame with nothing in it, that is fine, not an error
+    taken, problems = writer.send_targets(items)
+    body = {"ok": len(problems) == 0, "accepted": taken, "rejected": len(problems)}
+    if problems:
+        body["problems"] = problems[:10]
+    if taken == 0 and problems:
         return jsonify(body), 400
     return jsonify(body), 202
 
