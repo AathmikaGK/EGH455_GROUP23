@@ -7,7 +7,7 @@ from db import conn as dbconn
 # all the sql lives here. if the database is off the rows go to memory instead
 
 lock = threading.Lock()
-mem = {"readings": [], "detections": [], "system_log": []}
+mem = {"readings": [], "detections": [], "system_log": [], "frames": []}
 
 writer_conn = None
 db_ok = False
@@ -54,11 +54,11 @@ def save_reading(row):
         return
     sql = ("INSERT INTO readings (ts, temperature, pressure, humidity, light, "
            "oxidising_ohms, oxidising_ppm, reducing_ohms, reducing_ppm, "
-           "ammonia_ohms, ammonia_ppm) "
-           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+           "ammonia_ohms, ammonia_ppm, capture_lag) "
+           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
     vals = (row["ts"], row["temperature"], row["pressure"], row["humidity"], row["light"],
             row["oxidising_ohms"], row["oxidising_ppm"], row["reducing_ohms"],
-            row["reducing_ppm"], row["ammonia_ohms"], row["ammonia_ppm"])
+            row["reducing_ppm"], row["ammonia_ohms"], row["ammonia_ppm"], row["capture_lag"])
     run_insert(sql, vals)
 
 
@@ -67,11 +67,40 @@ def save_detection(row):
     if not db_ok:
         return
     sql = ("INSERT INTO detections (ts, type, valve_state, gauge_value, gauge_units, "
-           "aruco_id, x, y, z, confidence, frame_path) "
-           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+           "aruco_id, x, y, z, uav_x, uav_y, uav_z, confidence, frame_path, frame_id, "
+           "capture_lag) "
+           "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)")
     vals = (row["ts"], row["type"], row["valve_state"], row["gauge_value"], row["gauge_units"],
-            row["aruco_id"], row["x"], row["y"], row["z"], row["confidence"], row["frame_path"])
+            row["aruco_id"], row["x"], row["y"], row["z"], row["uav_x"], row["uav_y"],
+            row["uav_z"], row["confidence"], row["frame_path"], row["frame_id"],
+            row["capture_lag"])
     run_insert(sql, vals)
+
+
+def save_frame(row):
+    # one saved jpeg. the id is picked by video/capture.py so the file name
+    # and the row agree before the row is written
+    keep_in_memory("frames", row)
+    if not db_ok:
+        return
+    sql = ("INSERT INTO frames (id, ts, path, n_targets, types, bytes, capture_lag) "
+           "VALUES (%s,%s,%s,%s,%s,%s,%s)")
+    vals = (row["id"], row["ts"], row["path"], row["n_targets"], row["types"],
+            row["bytes"], row["capture_lag"])
+    run_insert(sql, vals)
+
+
+def prune_frames(max_id):
+    # the jpegs up to max_id are gone, so their rows go and detections stop pointing at them
+    with lock:
+        mem["frames"] = [r for r in mem["frames"] if r["id"] > max_id]
+        for r in mem["detections"]:
+            if r.get("frame_id") is not None and r["frame_id"] <= max_id:
+                r["frame_id"] = None
+    if not db_ok:
+        return
+    run_insert("DELETE FROM frames WHERE id <= %s", (max_id,))
+    run_insert("UPDATE detections SET frame_id = NULL WHERE frame_id <= %s", (max_id,))
 
 
 def save_log(row):
@@ -94,6 +123,7 @@ def run_insert(sql, vals):
     except Exception as err:
         # the memory copy already has the row, do not kill the writer thread
         print("[store] insert failed:", err)
+        print("[store] if a column is missing, run python -m db.init to update the tables")
         db_ok = False
 
 
@@ -129,10 +159,76 @@ def read_from_memory(table, start, end, limit):
     return [clean_row(r) for r in rows[-limit:]]
 
 
+def get_frames(start, end, limit, only_targets=False, kind=None):
+    # saved frames in a time range, oldest first. kind keeps frames holding that target type
+    if db_ok:
+        try:
+            return frames_from_db(start, end, limit, only_targets, kind)
+        except Exception as err:
+            print("[store] frames query failed:", err)
+    with lock:
+        rows = [r for r in mem["frames"] if start <= r["ts"] <= end]
+    if only_targets:
+        rows = [r for r in rows if r["n_targets"] > 0]
+    if kind:
+        rows = [r for r in rows if kind in r["types"].split(",")]
+    return [clean_row(r) for r in rows[-limit:]]
+
+
+def frames_from_db(start, end, limit, only_targets, kind):
+    sql = "SELECT * FROM frames WHERE ts BETWEEN %s AND %s"
+    vals = [start, end]
+    if only_targets:
+        sql += " AND n_targets > 0"
+    if kind:
+        sql += " AND FIND_IN_SET(%s, types)"
+        vals.append(kind)
+    sql += " ORDER BY ts DESC LIMIT %s"
+    vals.append(limit)
+
+    c = dbconn.get_conn()
+    try:
+        cur = c.cursor()
+        cur.execute(sql, vals)
+        rows = list(cur.fetchall())
+        rows.reverse()
+        cur.close()
+        return [clean_row(r) for r in rows]
+    finally:
+        c.close()
+
+
+def get_targets_for(frame_ids):
+    # the detection rows drawn on these saved frames
+    if not frame_ids:
+        return []
+    if db_ok:
+        try:
+            c = dbconn.get_conn()
+            try:
+                cur = c.cursor()
+                marks = ",".join(["%s"] * len(frame_ids))
+                cur.execute("SELECT * FROM detections WHERE frame_id IN (%s) ORDER BY id" % marks,
+                            list(frame_ids))
+                rows = list(cur.fetchall())
+                cur.close()
+                return [clean_row(r) for r in rows]
+            finally:
+                c.close()
+        except Exception as err:
+            print("[store] targets query failed:", err)
+    wanted = set(frame_ids)
+    with lock:
+        rows = [r for r in mem["detections"] if r.get("frame_id") in wanted]
+    return [clean_row(r) for r in rows]
+
+
 def clean_row(row):
     # turn the row into something json can handle
     out = {}
     for k, v in row.items():
+        if k in ("box", "corners") and v is None:
+            continue
         if isinstance(v, datetime):
             out[k] = to_iso(v)
         else:

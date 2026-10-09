@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 from datetime import datetime
 
 from db import store
@@ -18,13 +19,28 @@ WRITE_AS = {
 
 inbox = queue.Queue(maxsize=2000)
 running = False
-counts = {"reading": 0, "detection": 0, "log": 0, "dropped": 0, "bad": 0}
+counts = {"reading": 0, "detection": 0, "log": 0, "frame": 0, "dropped": 0, "bad": 0}
 
 
 def now_ms():
-    # pi clock, cut to milliseconds because that is what DATETIME(3) holds
+    # server clock, cut to milliseconds because that is what DATETIME(3) holds
     t = datetime.now()
     return t.replace(microsecond=(t.microsecond // 1000) * 1000)
+
+
+def lag_of(captured_at):
+    # seconds from capture on the payload to arrival here, the REQ-M-19 number.
+    # only right when the payload clock is synced to this one
+    if captured_at is None:
+        return None
+    return round(time.time() - captured_at, 3)
+
+
+def stamp_lag(row, fallback=None):
+    # swaps the sender's capture time for the delay it worked out to
+    captured_at = row.pop("captured_at", None)
+    lag = lag_of(captured_at)
+    row["capture_lag"] = lag if lag is not None else fallback
 
 
 def send_to_writer(kind, msg):
@@ -38,20 +54,25 @@ def send_to_writer(kind, msg):
         return False, err
 
     row["ts"] = now_ms()
+    stamp_lag(row)
 
-    try:
-        inbox.put_nowait((WRITE_AS[kind], row))
-    except queue.Full:
-        # better to lose a sample than to block the subsystem that sent it
-        counts["dropped"] = counts["dropped"] + 1
+    if not queue_job(WRITE_AS[kind], row):
         return False, "writer queue is full"
     return True, None
 
 
-def send_targets(items):
-    # one camera frame from the taq. every target gets the same ts, so the
-    # rows of one frame line up in the history. returns (taken, problems)
-    stamp = now_ms()
+def queue_job(kind, row):
+    # better to lose a sample than to block the subsystem that sent it
+    try:
+        inbox.put_nowait((kind, row))
+    except queue.Full:
+        counts["dropped"] = counts["dropped"] + 1
+        return False
+    return True
+
+
+def check_targets(items):
+    # checks every target of one frame, returns (rows, problems)
     rows = []
     problems = []
     for i, msg in enumerate(items):
@@ -60,8 +81,23 @@ def send_targets(items):
             counts["bad"] = counts["bad"] + 1
             problems.append({"index": i, "error": err})
             continue
-        row["ts"] = stamp
         rows.append(row)
+    return rows, problems
+
+
+def send_targets(items):
+    rows, problems = check_targets(items)
+    return queue_targets(rows, problems)
+
+
+def queue_targets(rows, problems, frame_id=None, lag=None):
+    # one camera frame from the taq. every target gets the same ts, so the
+    # rows of one frame line up in the history. returns (taken, problems)
+    stamp = now_ms()
+    for row in rows:
+        row["ts"] = stamp
+        row["frame_id"] = frame_id
+        stamp_lag(row, lag)
 
     jobs = [("detection", row) for row in rows]
     # a list of only aruco markers (or an empty one) is the whole view, so the
@@ -86,6 +122,19 @@ def write_row(kind, row):
     # no table for this one, it only tells the dashboards which markers are in view
     if kind == "aruco_view":
         bus.note_aruco_view(row)
+        return
+
+    # a saved jpeg for the image history, the file is already on disk
+    if kind == "frame":
+        store.save_frame(row)
+        counts["frame"] = counts["frame"] + 1
+        if row["n_targets"] > 0:
+            bus.note_capture(row)
+        return
+
+    # old jpegs were deleted, their rows go too
+    if kind == "frame_prune":
+        store.prune_frames(row["max_id"])
         return
 
     # one message, one row, then the dashboards get told about it

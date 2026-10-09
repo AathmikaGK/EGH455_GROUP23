@@ -24,10 +24,15 @@ latest = {
     "log": None,
     "updated": None,
     "updated_at": None,   # time.time() the last row landed, used for "quiet"
+    "lcd": {"mode": config.LCD_MODES[0], "changed": None},
 }
 
 LOG_KEEP = 25
 recent_logs = []
+
+# logs the web viz writes about itself. they are not payload data, so they
+# must not make the dashboard look live
+OWN_COMPONENTS = ["WVS"]
 
 
 def to_json_row(row):
@@ -52,6 +57,9 @@ def remember(kind, row):
         else:
             latest["gauge"] = item
     else:
+        if item["component"] in OWN_COMPONENTS:
+            # still logged and still sent, the system log page shows them
+            return item
         latest["log"] = item
         recent_logs.append(item)
         if len(recent_logs) > LOG_KEEP:
@@ -82,9 +90,30 @@ def note_aruco_view(view):
 
 
 def note_frame(meta):
-    # frames get no database row, this just says one landed
+    # live frames get no database row, this just says one landed
     with lock:
         send_to_all(make_event("frame", meta))
+
+
+def note_capture(row):
+    # a frame with targets was saved, for the strip of detection images
+    item = to_json_row(row)
+    item["url"] = "/frames/%d.jpg" % row["id"]
+    with lock:
+        send_to_all(make_event("capture", item))
+
+
+def set_lcd(mode):
+    # the lcd display the operator picked, the payload reads it from GET /api/lcd
+    with lock:
+        latest["lcd"] = {"mode": mode, "changed": store.to_iso(datetime.now())}
+        send_to_all(make_event("lcd", latest["lcd"]))
+        return dict(latest["lcd"])
+
+
+def lcd_state():
+    with lock:
+        return dict(latest["lcd"])
 
 
 def send_to_all(packet):
@@ -127,6 +156,11 @@ def snapshot():
             "payload_ip": config.PAYLOAD_IP,
             "cadence": config.CADENCE_SECONDS,
             "drill_bar": config.DRILL_PRESSURE_BAR,
+            "gauge_max": config.GAUGE_MAX_BAR,
+            "age_limit": config.AGE_LIMIT_SECONDS,
+            "lcd": dict(latest["lcd"]),
+            "lcd_modes": config.LCD_MODES,
+            "own_components": OWN_COMPONENTS,
             "using_db": store.using_db(),
         }
 

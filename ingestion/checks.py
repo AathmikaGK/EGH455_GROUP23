@@ -23,6 +23,9 @@ DRILL_STATES = ["idle", "drilling", "done"]
 # a pose further than this from the camera is a bad solve, not a marker
 POSE_LIMIT_M = 20.0
 
+# box and corner pixels, bigger than any frame the oak sends
+PIXEL_LIMIT = 10000
+
 
 def as_float(msg, key):
     # a number from the message, None if missing or not a number
@@ -56,8 +59,76 @@ def as_text(msg, key, limit):
     return text[:limit]
 
 
+def as_time(msg, key):
+    # unix seconds from the sender's clock, milliseconds are allowed too.
+    # a missing or silly value just means no capture time, not a bad message
+    value = as_float(msg, key)
+    if value is None:
+        return None
+    if value > 1e12:
+        value = value / 1000.0
+    if value < 1e9 or value > 1e10:
+        return None
+    return value
+
+
 def in_range(value, low, high):
     return value is None or (low <= value <= high)
+
+
+def as_pixels(value, count):
+    # a flat list of pixel numbers, None if it is not one
+    if not isinstance(value, (list, tuple)) or len(value) != count:
+        return None
+    out = []
+    for v in value:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v) or v < -PIXEL_LIMIT or v > PIXEL_LIMIT:
+            return None
+        out.append(round(v, 1))
+    return out
+
+
+def check_box(msg):
+    # [x1, y1, x2, y2] in pixels of the frame it came with. returns (box, error)
+    if msg.get("box") is None:
+        return None, None
+    box = as_pixels(msg["box"], 4)
+    if box is None or box[2] <= box[0] or box[3] <= box[1]:
+        return None, "box must be [x1, y1, x2, y2] in pixels, top-left then bottom-right"
+    return box, None
+
+
+def check_corners(msg):
+    # the four marker corners from detectMarkers, [[x, y], ...] in pixels
+    if msg.get("corners") is None:
+        return None, None
+    raw = msg["corners"]
+    bad = "corners must be four [x, y] pixel points"
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return None, bad
+    out = []
+    for point in raw:
+        pair = as_pixels(point, 2)
+        if pair is None:
+            return None, bad
+        out.append(pair)
+    return out, None
+
+
+def check_uav(msg):
+    # the uav position worked out from the marker pose, sent as
+    # {"uav": {"x":, "y":, "z":}} or flat uav_x / uav_y / uav_z. returns (xyz, error)
+    src = msg.get("uav") if isinstance(msg.get("uav"), dict) else msg
+    prefix = "" if src is not msg else "uav_"
+    xyz = [as_float(src, prefix + axis) for axis in ["x", "y", "z"]]
+    for v in xyz:
+        if not in_range(v, -POSE_LIMIT_M, POSE_LIMIT_M):
+            return None, "uav position out of range (-%g to %g m)" % (POSE_LIMIT_M, POSE_LIMIT_M)
+    return xyz, None
 
 
 def check_reading(msg):
@@ -78,6 +149,7 @@ def check_reading(msg):
 
     if not got_one:
         return None, "reading has no values in it"
+    row["captured_at"] = as_time(msg, "captured_at")
     return row, None
 
 
@@ -106,6 +178,8 @@ def check_detection(msg):
         "z": as_float(msg, "z"),
         "confidence": as_float(msg, "confidence"),
         "frame_path": as_text(msg, "frame_path", 255),
+        "frame_id": None,
+        "captured_at": as_time(msg, "captured_at"),
     }
 
     if not in_range(row["confidence"], 0.0, 1.0):
@@ -114,6 +188,19 @@ def check_detection(msg):
     for axis in ["x", "y", "z"]:
         if not in_range(row[axis], -POSE_LIMIT_M, POSE_LIMIT_M):
             return None, "%s out of range (-%g to %g m)" % (axis, POSE_LIMIT_M, POSE_LIMIT_M)
+
+    # where to draw it on the frame, not stored in the database
+    row["box"], err = check_box(msg)
+    if err:
+        return None, err
+    row["corners"], err = check_corners(msg)
+    if err:
+        return None, err
+
+    uav, err = check_uav(msg)
+    if err:
+        return None, err
+    row["uav_x"], row["uav_y"], row["uav_z"] = uav
 
     # each target type carries its own extra field
     if kind == "valve":
@@ -185,6 +272,7 @@ def check_log(msg):
         "drill_state": drill,
         "hole_depth": depth,
         "trigger_pressure": trigger,
+        "captured_at": None,
     }
     return row, None
 
@@ -211,7 +299,7 @@ def check_drill(msg):
 
     text = as_text(msg, "message", 255)
     if text is None:
-        text = "drill state " + state
+        text = "Drill state changed to " + state
 
     level = (as_text(msg, "level", 8) or "info").lower()
     if level not in LOG_LEVELS:
@@ -219,11 +307,12 @@ def check_drill(msg):
 
     row = {
         "level": level,
-        "component": "drill",
+        "component": "EDM",
         "message": text,
         "drill_state": state,
         "hole_depth": depth,
         "trigger_pressure": trigger,
+        "captured_at": None,
     }
     return row, None
 

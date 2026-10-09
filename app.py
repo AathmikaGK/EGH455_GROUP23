@@ -3,9 +3,9 @@ from flask import Flask, render_template
 import config
 from api.routes import api_bp
 from db import store
-from ingestion import writer
+from ingestion import heartbeat, writer
 from live.stream import live_bp
-from video import frames
+from video import capture, frames
 from video.feed import video_bp
 
 # entry point. this app makes no data of its own, it shows what gets sent to it
@@ -15,6 +15,8 @@ started = False
 
 def make_app():
     app = Flask(__name__, static_folder="static", template_folder="templates")
+    # browsers check the js and css again on every load, so an update shows straight away
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
     app.register_blueprint(api_bp)
     app.register_blueprint(live_bp)
@@ -41,6 +43,8 @@ def start_background():
 
     store.start_store()
     writer.start_writer()
+    capture.start_saver()
+    heartbeat.start_heartbeat()
 
     if config.VIDEO_SOURCE == "device":
         frames.start_device()

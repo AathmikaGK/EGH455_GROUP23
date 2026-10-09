@@ -1,9 +1,10 @@
+import os
 import time
-from flask import Blueprint, Response
+from flask import Blueprint, Response, send_file
 import config
-from video import frames
+from video import capture, frames
 
-# the mjpeg route. frames are never stored and the database is not involved
+# the mjpeg route reads the live buffer, the saved frames route reads captures/
 
 video_bp = Blueprint("video", __name__)
 
@@ -49,3 +50,14 @@ def video_feed():
     r.headers["Pragma"] = "no-cache"
     r.headers["X-Accel-Buffering"] = "no"
     return r
+
+
+@video_bp.route("/frames/<int:frame_id>.jpg")
+def saved_frame(frame_id):
+    # the id alone gives the path, so this only ever reads inside captures/
+    path = capture.full_path(frame_id)
+    if not os.path.isfile(path):
+        return Response("no saved frame %d, it may have been cleaned up" % frame_id,
+                        status=404, mimetype="text/plain")
+    # a saved frame never changes, so browsers can keep it
+    return send_file(path, mimetype="image/jpeg", max_age=3600)

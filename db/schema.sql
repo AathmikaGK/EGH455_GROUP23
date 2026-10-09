@@ -20,8 +20,12 @@ CREATE TABLE IF NOT EXISTS readings (
     reducing_ppm    FLOAT NULL,
     ammonia_ohms    FLOAT NULL,
     ammonia_ppm     FLOAT NULL,
+    capture_lag     FLOAT NULL COMMENT 'seconds from capture to arrival, REQ-M-19',
     KEY idx_readings_ts (ts)
 ) ENGINE=InnoDB;
+
+ALTER TABLE readings
+    ADD COLUMN IF NOT EXISTS capture_lag FLOAT NULL COMMENT 'seconds from capture to arrival, REQ-M-19';
 
 -- one row per target the detection subsystem finds - TAQ
 -- the taq sends one list per camera frame, [{"id": 22, "x": .., "y": .., "z": ..}],
@@ -38,11 +42,17 @@ CREATE TABLE IF NOT EXISTS detections (
     x            DOUBLE NULL COMMENT 'metres, camera frame, right',
     y            DOUBLE NULL COMMENT 'metres, camera frame, down',
     z            DOUBLE NULL COMMENT 'metres, camera frame, out of the lens',
+    uav_x        DOUBLE NULL COMMENT 'metres, uav position from the marker',
+    uav_y        DOUBLE NULL,
+    uav_z        DOUBLE NULL,
     confidence   FLOAT NULL COMMENT '0 to 1',
     frame_path   VARCHAR(255) NULL,
+    frame_id     BIGINT NULL COMMENT 'the saved frame it was drawn on, frames.id',
+    capture_lag  FLOAT NULL COMMENT 'seconds from capture to arrival, REQ-M-19',
     KEY idx_detections_ts (ts),
     KEY idx_detections_type_ts (type, ts),
-    KEY idx_detections_aruco_ts (aruco_id, ts)
+    KEY idx_detections_aruco_ts (aruco_id, ts),
+    KEY idx_detections_frame (frame_id)
 ) ENGINE=InnoDB;
 
 -- brings a table made from the old schema up to date, safe to run again
@@ -52,7 +62,26 @@ ALTER TABLE detections
     MODIFY x DOUBLE NULL COMMENT 'metres, camera frame, right',
     MODIFY y DOUBLE NULL COMMENT 'metres, camera frame, down',
     MODIFY z DOUBLE NULL COMMENT 'metres, camera frame, out of the lens',
-    ADD KEY IF NOT EXISTS idx_detections_aruco_ts (aruco_id, ts);
+    ADD KEY IF NOT EXISTS idx_detections_aruco_ts (aruco_id, ts),
+    ADD COLUMN IF NOT EXISTS uav_x DOUBLE NULL COMMENT 'metres, uav position from the marker',
+    ADD COLUMN IF NOT EXISTS uav_y DOUBLE NULL,
+    ADD COLUMN IF NOT EXISTS uav_z DOUBLE NULL,
+    ADD COLUMN IF NOT EXISTS frame_id BIGINT NULL COMMENT 'the saved frame it was drawn on, frames.id',
+    ADD COLUMN IF NOT EXISTS capture_lag FLOAT NULL COMMENT 'seconds from capture to arrival, REQ-M-19',
+    ADD KEY IF NOT EXISTS idx_detections_frame (frame_id);
+
+-- one row per saved jpeg for the image history. the file is
+-- captures/<yyyy-mm-dd>/<id>.jpg, the id is milliseconds since 1970
+CREATE TABLE IF NOT EXISTS frames (
+    id           BIGINT PRIMARY KEY,
+    ts           DATETIME(3) NOT NULL,
+    path         VARCHAR(255) NOT NULL COMMENT 'relative to WVS_CAPTURE_DIR',
+    n_targets    INT NOT NULL DEFAULT 0,
+    types        VARCHAR(64) NOT NULL DEFAULT '' COMMENT 'comma list, e.g. valve,aruco',
+    bytes        INT NOT NULL,
+    capture_lag  FLOAT NULL COMMENT 'seconds from capture to arrival',
+    KEY idx_frames_ts (ts)
+) ENGINE=InnoDB;
 
 -- carries the drill state
 CREATE TABLE IF NOT EXISTS system_log (

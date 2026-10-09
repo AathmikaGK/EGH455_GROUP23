@@ -62,7 +62,7 @@ become DOUBLE, the `aruco_id` index is added); no rows are lost.
 | `id` | BIGINT AUTO_INCREMENT | no | primary key |
 | `ts` | DATETIME(3) | no | arrival time, indexed |
 | `level` | ENUM('info','warning','error') | no | default `info`, indexed with `ts` |
-| `component` | VARCHAR(64) | no | who sent it, `drill` for drill events |
+| `component` | VARCHAR(64) | no | who sent it: `WVS`, `AQ`, `TAIP` or `EDM` (`EDM` for drill events) |
 | `message` | VARCHAR(255) | no | |
 | `drill_state` | ENUM('idle','drilling','done') | yes | set on drill events |
 | `hole_depth` | FLOAT | yes | metres |
@@ -179,12 +179,12 @@ A log that includes `drill_state` also updates the drill panel. Prefer the
 drill endpoint below for drill events.
 
 ```json
-{ "level": "warning", "component": "nav", "message": "gps fix lost, holding position" }
+{ "level": "warning", "component": "AQ", "message": "gas sensor warming up" }
 ```
 
 ### Drill - `POST /api/ingest/drill`
 
-Stored as a `system_log` row with `component` = `drill`.
+Stored as a `system_log` row with `component` = `EDM`.
 
 | Field | Type | Required | Notes |
 | `drill_state` | string | yes | `idle`, `drilling`, `done` |
@@ -218,9 +218,49 @@ which markers are in view.
 ]
 ```
 
-### Frame - `POST /api/ingest/frame`
+### Frame + targets - `POST /api/ingest/frame` (what the TAQ should send)
 
-Not JSON. The body is a JPEG, max 2 MB (`WVS_FRAME_MAX`). It can be sent as
+One request per camera frame: the JPEG and the targets found in it, together,
+so the boxes are drawn on the right picture. Send it as multipart form data:
+
+| Part | Type | Required | Notes |
+|---|---|---|---|
+| `frame` | JPEG file | yes | the 640 x 480 image the pixels below belong to, max 2 MB |
+| `targets` | JSON text | no | list of targets in this frame, `[]` when nothing was seen. Leave the field out for a frame-only post |
+| `captured_at` | number | recommended | unix seconds when the frame was grabbed, for the 4 s check (REQ-M-19). The payload clock must be synced to the web viz |
+| `camera`, `model`, `inference_ms` | | no | shown under the video |
+
+Each target takes the detection fields below plus where it is in the image:
+
+| Field | For | Notes |
+|---|---|---|
+| `box` | valve, gauge | `[x1, y1, x2, y2]` pixels, top-left then bottom-right |
+| `corners` | aruco | the four `[x, y]` pixel corners from `detectMarkers` |
+| `uav` | aruco | `{"x":, "y":, "z":}` metres, the UAV position w.r.t. the marker (or flat `uav_x`, `uav_y`, `uav_z`) |
+
+```python
+targets = [{"type": "valve", "valve_state": "open", "confidence": 0.93, "box": [212, 140, 318, 251]},
+           {"id": 7, "x": 0.41, "y": -0.03, "z": 1.21, "uav": {"x": -0.38, "y": 0.12, "z": 1.17},
+            "corners": [[101, 300], [161, 302], [159, 361], [99, 359]]}]
+ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+requests.post("http://<web viz>:8000/api/ingest/frame",
+              files={"frame": ("f.jpg", jpg.tobytes(), "image/jpeg")},
+              data={"targets": json.dumps(targets), "captured_at": time.time()},
+              timeout=0.5)
+```
+
+The web viz draws the boxes and labels (turn off with `WVS_DRAW_BOXES=0` if the
+TAQ draws them itself), streams the frame on `/video_feed`, logs every target
+in `detections` with the frame's id, and saves the frame for the image history.
+A bad target is rejected and listed in `problems`; the frame still goes through.
+The reply is `{"ok", "bytes", "frame_id", "saved", "accepted", "rejected"}`.
+
+`captured_at` is also accepted on readings and detections sent as JSON, and is
+stored as `capture_lag` (seconds from capture to arrival).
+
+### Frame only
+
+The body can also be just a JPEG, max 2 MB (`WVS_FRAME_MAX`), sent as
 the raw body (`Content-Type: image/jpeg`) or as a multipart file field named
 `frame`. Optional details go in the query string or form fields and are shown
 under the video:
@@ -259,7 +299,11 @@ If the writer queue (2000 messages) is full, the message is rejected with
 | `GET /video_feed` | MJPEG stream of the latest frame, "NO SIGNAL" card when quiet |
 | `GET /api/live` | the same snapshot `/stream` sends on connect |
 | `GET /api/history?type=readings\|detections\|system_log&from=&to=&limit=` | rows in a time range, oldest first. `from`/`to` are ISO or unix time, default the last 10 minutes, `limit` max 5000 |
-| `GET /api/status` | database in use, clients, writer counters, video, row counts |
+| `GET /api/frames?from=&to=&only_targets=1&type=valve\|gauge\|aruco&limit=` | saved frames in a time range with their `url` and `targets`, `limit` max 2000 |
+| `GET /frames/<id>.jpg` | one saved frame |
+| `GET /api/lcd` | the LCD display the operator picked (`ip`, `detection`, `temperature`). The payload polls this (HLO-M-5) |
+| `POST /api/lcd` | `{"mode": "temperature"}`, what the dashboard selector sends |
+| `GET /api/status` | database in use, clients, writer counters, video, saved frames, row counts |
 | `GET /healthz` | `{"ok": true}` |
 
 ## Running
@@ -270,5 +314,35 @@ python -m db.init          # once, needs the MariaDB root login (WVS_DB_ROOT_PAS
 python app.py              # dev server on :8000
 ```
 
+To check everything works, with sample data for every subsystem:
+
+```bash
+bash examples/test_webviz.sh                              # PASS/FAIL for every endpoint
+bash examples/test_webviz.sh http://127.0.0.1:8000 stream   # no checks, 2 min of live sample data to watch
+```
+
+To test the integration the way the payload will use it, with AQ, TAIP and EDM
+posting at the same time and the drill reacting to the gauge:
+
+```bash
+python examples/integration_test.py                 # all three for 2 minutes, then PASS/FAIL checks
+python examples/integration_test.py --only edm      # one subsystem: aq, taip or edm
+```
+
 `WVS_USE_DB=0` keeps everything in memory. All settings are in
 [config.py](config.py) and can be set with `WVS_*` environment variables.
+After pulling this version, run `python -m db.init` again: it adds the new
+columns (`uav_x/y/z`, `frame_id`, `capture_lag`) and the `frames` table without
+losing rows.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `WVS_DRAW_BOXES` | `1` | draw target boxes and labels on frames |
+| `WVS_SAVE_FRAMES` | `1` | save frames for the image history, in `WVS_CAPTURE_DIR` (`captures/`) |
+| `WVS_SAVE_IDLE` | `1.0` | frames with targets are always saved, others at most this often (s). `0` = targets only |
+| `WVS_CAPTURE_KEEP_HOURS` / `WVS_CAPTURE_MAX_MB` | `24` / `2000` | old frames are deleted past either limit |
+| `WVS_MIN_FREE_MB` | `200` | stop saving frames below this much free disk |
+| `WVS_DRILL_BAR` | `2.0` | the drill fires when the gauge drops **below** this (REQ-F-09) |
+| `WVS_GAUGE_MAX` | `10.0` | top of the gauge meter, bar |
+| `WVS_AGE_LIMIT` | `4.0` | capture lag over this shows red (REQ-M-19) |
+| `WVS_HEARTBEAT` | `10` | seconds between web viz "running" log rows (REQ-M-15) |
