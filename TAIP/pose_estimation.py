@@ -3,10 +3,6 @@ Put on Terminal - connect camera to pc:-
 py pose_estimation.py --K_Matrix oak_calibration_matrix_640x480.npy --D_Coeff oak_distortion_coefficients_640x480.npy --type DICT_5X5_100
 '''
 
-# TEMPORARY: calibration_matrix.npy and distortion_coefficients.npy
-# are from the example repo.
-# Replace with OAK-D Lite EEPROM calibration values during hardware testing.
-
 import numpy as np
 import cv2
 import sys
@@ -14,6 +10,43 @@ from utils import ARUCO_DICT
 import argparse
 import time
 import depthai as dai
+import json
+import requests
+
+WEBVIZ_FRAME_URL = "http://127.0.0.1:8000/api/ingest/frame"
+
+def send_frame_to_webviz(frame, targets, captured_at):
+    success, encoded_frame = cv2.imencode(".jpg", frame)
+
+    if not success:
+        print("[WEBVIZ] Could not encode frame.")
+        return
+
+    try:
+        response = requests.post(
+            WEBVIZ_FRAME_URL,
+            files={
+                "frame": (
+                    "frame.jpg",
+                    encoded_frame.tobytes(),
+                    "image/jpeg"
+                )
+            },
+            data={
+                "targets": json.dumps(targets),
+                "captured_at": captured_at
+            },
+            timeout=0.5
+        )
+
+        if response.status_code not in (200, 201, 202, 204):
+            print(
+                f"[WEBVIZ] Response: "
+                f"{response.status_code} {response.text}"
+            )
+
+    except requests.RequestException as e:
+        print(f"[WEBVIZ] Send failed: {e}")
 
 
 def pose_estimation(frame, aruco_dict_type, matrix_coefficients, distortion_coefficients):
@@ -64,6 +97,29 @@ def pose_estimation(frame, aruco_dict_type, matrix_coefficients, distortion_coef
 
             if not success:
                 continue
+            
+            rotation_matrix, _ = cv2.Rodrigues(rvec)
+
+            # Camera position relative to the ArUCO marker
+            camera_position = -rotation_matrix.T @ tvec
+
+            # Assumed UAV reference point/drill hole:
+            # 15 mm directly behind the camera centre
+            camera_to_uav = np.array([
+                [0.0],
+                [0.0],
+                [-0.015]
+            ], dtype=np.float32)
+
+            # Convert the camera-to-UAV offset into the marker coordinate frame
+            uav_position = (
+                camera_position
+                + rotation_matrix.T @ camera_to_uav
+            )
+
+            uav_x = float(uav_position[0][0])
+            uav_y = float(uav_position[1][0])
+            uav_z = float(uav_position[2][0])
 
             # Draw a square around the markers
             cv2.aruco.drawDetectedMarkers(frame, corners) 
@@ -101,9 +157,23 @@ def pose_estimation(frame, aruco_dict_type, matrix_coefficients, distortion_coef
 
             detected_markers.append({
                 "id": marker_id,
+
+                # Marker relative to camera
                 "x": x,
                 "y": y,
-                "z": z
+                "z": z,
+
+                # Four marker corners in image pixels
+                "corners": corner.astype(int).tolist(),
+
+                "rvec": rvec.reshape(-1).tolist(),
+
+                # UAV reference point relative to ArUCO marker
+                "uav": {
+                    "x": uav_x,
+                    "y": uav_y,
+                    "z": uav_z
+                }
             })
 
             print(
@@ -170,33 +240,43 @@ if __name__ == '__main__':
         print("Press Q to quit.")
 
         while pipeline.isRunning():
+            # used for debugging: when marker wasnt detecting
+            # gray_test = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # aruco_dict_test = cv2.aruco.getPredefinedDictionary(
+            #     cv2.aruco.DICT_5X5_100
+            # )
+
+            # params_test = cv2.aruco.DetectorParameters()
+
+            # detector_test = cv2.aruco.ArucoDetector(
+            #     aruco_dict_test,
+            #     params_test
+            # )
+
+            # test_corners, test_ids, _ = detector_test.detectMarkers(gray_test)
+
+            # print("Detected IDs:", test_ids)
 
             frame_data = rgb_queue.get()
             frame = frame_data.getCvFrame()
 
-            gray_test = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Time this frame was captured
+            captured_at = time.time()
 
-            aruco_dict_test = cv2.aruco.getPredefinedDictionary(
-                cv2.aruco.DICT_5X5_100
-            )
-
-            params_test = cv2.aruco.DetectorParameters()
-
-            detector_test = cv2.aruco.ArucoDetector(
-                aruco_dict_test,
-                params_test
-            )
-
-            test_corners, test_ids, _ = detector_test.detectMarkers(gray_test)
-
-            print("Detected IDs:", test_ids)
-
-            # Run existing ArUCO pose estimation
+            # Process a copy so the original frame stays clean for WEBVIZ
             output, marker_data = pose_estimation(
-                frame,
+                frame.copy(),
                 aruco_dict_type,
                 k,
                 d
+            )
+
+            # Send EVERY frame to WEBVIZ, even when no marker is detected
+            send_frame_to_webviz(
+                frame,
+                marker_data,
+                captured_at
             )
 
             # Print results only when a marker is detected
@@ -210,8 +290,7 @@ if __name__ == '__main__':
 
     cv2.destroyAllWindows()
 
-
-    cv2.imshow("Estimated Pose", output)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    
+    # replaced with live loop
+    #cv2.imshow("Estimated Pose", output)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
