@@ -287,7 +287,19 @@ function Header(props) {
 }
 
 function NavBar(props) {
-  return h("nav", { className: "nav" }, PAGES.map(function (p) {
+  var nav = useRef(null);
+
+  // on a phone the menu scrolls sideways, so bring the open page's link into
+  // view. only the menu scrolls, never the page, and a desktop menu that
+  // fits is left alone
+  useEffect(function () {
+    var box = nav.current;
+    var on = box && box.querySelector("a.on");
+    if (!on || box.scrollWidth <= box.clientWidth) { return; }
+    box.scrollLeft = on.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
+  }, [props.page]);
+
+  return h("nav", { className: "nav", ref: nav }, PAGES.map(function (p) {
     return h("a", { key: p.id, href: "#" + p.id, className: p.id === props.page ? "on" : "" }, p.name);
   }));
 }
