@@ -335,8 +335,56 @@ function LiveScreen(props) {
   // the mjpeg feed with the boxes already drawn on it by the server
   var frame = props.frame || {};
   var running = frame.live;
+
+  // the mjpeg stream does not say when it dies (server restart, wifi change,
+  // phone asleep), the picture just freezes. a new src replaces the old
+  // connection, the ?t= stops the browser reusing it. only one LiveScreen is
+  // on screen at a time (dashboard or video page), so this is one stream
+  var [src, setSrc] = useState("/video_feed");
+  var retry = useRef(null);
+  var hiddenAt = useRef(null);
+  var wasLive = useRef(props.live);
+  var dropped = useRef(false);
+
+  function reconnect(delay) {
+    // only ever one retry waiting, so failures cannot stack up into a loop
+    clearTimeout(retry.current);
+    retry.current = setTimeout(function () {
+      retry.current = null;
+      setSrc("/video_feed?t=" + Date.now());
+    }, delay);
+  }
+
+  // the push stream dropped and came back, the video went down with it
+  useEffect(function () {
+    if (props.live && dropped.current) {
+      dropped.current = false;
+      reconnect(0);
+    }
+    if (!props.live && wasLive.current) { dropped.current = true; }
+    wasLive.current = props.live;
+  }, [props.live]);
+
+  // a phone that slept for more than a few seconds has usually lost the connection
+  useEffect(function () {
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      if (hiddenAt.current && Date.now() - hiddenAt.current > 5000) { reconnect(0); }
+      hiddenAt.current = null;
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return function () {
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(retry.current);
+    };
+  }, []);
+
   return h("div", { className: "screen" },
-    h("img", { src: "/video_feed", alt: "detector feed" }),
+    // a failed connect waits a few seconds before the next try
+    h("img", { src: src, alt: "detector feed", onError: function () { reconnect(3000); } }),
     h("div", { className: "cam" }, frame.camera || "CAM 0"),
     h("div", { className: "rec" + (running ? "" : " off") },
       running ? "REC " + props.rec : "NO SIGNAL"));
@@ -351,7 +399,7 @@ function FeedNote(props) {
 function FeedPanel(props) {
   return h("div", { className: "section" },
     h("h2", null, "Live Detector Feed"),
-    h(LiveScreen, { frame: props.frame, rec: props.rec }),
+    h(LiveScreen, { frame: props.frame, rec: props.rec, live: props.live }),
     h(FeedNote, { frame: props.frame, ageLimit: props.ageLimit }));
 }
 
@@ -792,7 +840,7 @@ function CurrentImage(props) {
       "Saved detection image  ·  " + typesText(sel.types) + "  ",
       h("button", { className: "btn small", onClick: function () { props.pick(null); } }, "Back to live"));
   } else {
-    screen = h(LiveScreen, { frame: props.frame, rec: props.rec });
+    screen = h(LiveScreen, { frame: props.frame, rec: props.rec, live: props.live });
     notes = h(FeedNote, { frame: props.frame, ageLimit: props.ageLimit });
   }
 
@@ -923,7 +971,7 @@ function Dashboard(props) {
   return h("div", { className: "mock" },
     h(ImageStream, { captures: props.captures, selected: props.selected, pick: props.pick }),
     h(CurrentImage, {
-      frame: props.frame, rec: props.rec, ageLimit: props.ageLimit,
+      frame: props.frame, rec: props.rec, live: props.live, ageLimit: props.ageLimit,
       selected: props.selected, pick: props.pick, target: props.target, limit: props.limit
     }),
     h(ChartTabs, { rows: props.rows, poseRows: props.poseRows, poseId: props.poseId }),
@@ -1732,7 +1780,7 @@ function App() {
   var gaugeMax = has(data.info.gauge_max) ? data.info.gauge_max : 10.0;
   var ageLimit = has(data.info.age_limit) ? data.info.age_limit : 4.0;
 
-  var feed = h(FeedPanel, { frame: data.frame, rec: clock.rec, ageLimit: ageLimit });
+  var feed = h(FeedPanel, { frame: data.frame, rec: clock.rec, live: live, ageLimit: ageLimit });
   var found = h(TargetFound, { target: data.lastTarget, ageLimit: ageLimit, limit: limit });
   var strip = h(CaptureStrip, { captures: captures });
   var targets = h(TargetPanel, {
@@ -1770,7 +1818,7 @@ function App() {
     });
     body = h(Dashboard, {
       captures: captures, selected: selected, pick: setSelected,
-      frame: data.frame, rec: clock.rec, ageLimit: ageLimit, target: data.lastTarget,
+      frame: data.frame, rec: clock.rec, live: live, ageLimit: ageLimit, target: data.lastTarget,
       rows: rows, poseRows: poses, poseId: poseId,
       latest: { valve: data.valve, gauge: data.gauge, aruco: lastAruco },
       stats: stats, limit: limit, drill: data.drill, reading: data.reading
