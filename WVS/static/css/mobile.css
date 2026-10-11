@@ -1,0 +1,11 @@
+/* phone and tablet overrides. loaded after style.css, which stays the desktop
+   design. every rule here sits inside a media query, so the desktop layout
+   (760 px wide and up) is exactly what style.css draws
+
+   breakpoints, desktop first like style.css
+     style.css   max-width: 1150px   dashboard drops to two columns
+     style.css   max-width: 900px    readings tiles go 4 -> 2
+     style.css   max-width: 760px    target cards and drill strip stack
+     phone       max-width: 759px    everything below, one column
+     small       max-width: 400px    the narrowest phones (360 px)
+     landscape   (orientation: landscape) and (max-height: 500px), a phone on its side */
