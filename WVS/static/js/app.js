@@ -345,8 +345,11 @@ function LiveScreen(props) {
   var hiddenAt = useRef(null);
   var wasLive = useRef(props.live);
   var dropped = useRef(false);
+  var img = useRef(null);
+  var gone = useRef(false);
 
   function reconnect(delay) {
+    if (gone.current) { return; }
     // only ever one retry waiting, so failures cannot stack up into a loop
     clearTimeout(retry.current);
     retry.current = setTimeout(function () {
@@ -376,15 +379,22 @@ function LiveScreen(props) {
       hiddenAt.current = null;
     }
     document.addEventListener("visibilitychange", onVisibility);
+    // kept here because react has already cleared the ref when this cleans up
+    var node = img.current;
     return function () {
       document.removeEventListener("visibilitychange", onVisibility);
+      gone.current = true;
       clearTimeout(retry.current);
+      // the browser keeps a multipart image streaming after the img is taken
+      // off the page, so leaving the video page still pulled the video.
+      // dropping the src is what closes the connection
+      if (node) { node.removeAttribute("src"); }
     };
   }, []);
 
   return h("div", { className: "screen" },
     // a failed connect waits a few seconds before the next try
-    h("img", { src: src, alt: "detector feed", onError: function () { reconnect(3000); } }),
+    h("img", { ref: img, src: src, alt: "detector feed", onError: function () { reconnect(3000); } }),
     h("div", { className: "cam" }, frame.camera || "CAM 0"),
     h("div", { className: "rec" + (running ? "" : " off") },
       running ? "REC " + props.rec : "NO SIGNAL"));
