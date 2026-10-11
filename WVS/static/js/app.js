@@ -249,8 +249,11 @@ function SoundControls(props) {
     return h("span", { className: "hud-note" }, "No speech in this browser");
   }
   if (!props.sound.unlocked) {
-    // any click on the page unlocks speech, this button is just the obvious place
-    return h("button", { className: "btn small attention" }, "Click to allow voice");
+    // any click on the page unlocks speech, this button is just the obvious place.
+    // it unlocks on its own click: unlocked on the press, the same click would
+    // land on the mute button that replaces it and turn voice straight off
+    return h("button", { className: "btn small attention voice-allow", onClick: props.unlock },
+      "Click to allow voice");
   }
   return h("button", { className: "btn small", onClick: props.toggleMute },
     props.sound.muted ? "Voice off (unmute)" : "Voice on (mute)");
@@ -282,7 +285,7 @@ function Header(props) {
       }),
       h(HudItem, {
         label: "Voice alerts",
-        value: h(SoundControls, { sound: props.sound, toggleMute: props.toggleMute })
+        value: h(SoundControls, { sound: props.sound, toggleMute: props.toggleMute, unlock: props.unlock })
       })));
 }
 
@@ -1790,14 +1793,21 @@ function App() {
       .catch(function () { setLcdBusy(false); });
   }
 
+  function unlockSpeech() {
+    if (speech.unlocked || !canSpeak()) { return; }
+    speech.unlocked = true;
+    // speaking inside the click is what tells the browser sound is allowed
+    say("Voice alerts on");
+    setSound({ unlocked: true, muted: speech.muted });
+  }
+
   // the first click or key press anywhere on the page unlocks speech
   useEffect(function () {
-    function unlock() {
-      if (speech.unlocked || !canSpeak()) { return; }
-      speech.unlocked = true;
-      // speaking inside the click is what tells the browser sound is allowed
-      say("Voice alerts on");
-      setSound({ unlocked: true, muted: speech.muted });
+    function unlock(ev) {
+      // the voice button does it on its own click, see SoundControls
+      if (ev && ev.target && ev.target.closest && ev.target.closest(".voice-allow")) { return; }
+      unlockSpeech();
+      if (!speech.unlocked) { return; }
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     }
@@ -1888,7 +1898,7 @@ function App() {
     h(Header, {
       info: data.info, live: live, quiet: clock.quiet, timer: clock.timer,
       lcd: data.lcd, lcdBusy: lcdBusy, pickLcd: pickLcd,
-      sound: sound, toggleMute: toggleMute
+      sound: sound, toggleMute: toggleMute, unlock: unlockSpeech
     }),
     h(NavBar, { page: page }),
     body);
