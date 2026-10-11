@@ -188,3 +188,30 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* a phone on its side. a full width feed is taller than the screen, so the
+   box is capped at 68% of the screen height, worked back into a width from
+   its own shape (16:10 on the video page, 4:3 on the dashboard). the picture
+   is still contained, never cropped, and the REC and camera labels stay on
+   it. vh first for browsers without svh */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .screen {
+    width: min(100%, calc(68vh * 16 / 10));
+    width: min(100%, calc(68svh * 16 / 10));
+    margin: 0 auto;
+  }
+
+  .mock .screen {
+    width: min(100%, calc(68vh * 4 / 3));
+    width: min(100%, calc(68svh * 4 / 3));
+  }
+
+  .viewer { max-height: 68vh; max-height: 68svh; }
+}
+
+/* the header is the desktop one at this width, so give back a little height */
+@media (orientation: landscape) and (max-height: 500px) {
+  .topbar { padding: 6px 16px; }
+  .hud-item { padding: 3px 10px; }
+}
