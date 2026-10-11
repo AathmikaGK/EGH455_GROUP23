@@ -9,3 +9,68 @@
      phone       max-width: 759px    everything below, one column
      small       max-width: 400px    the narrowest phones (360 px)
      landscape   (orientation: landscape) and (max-height: 500px), a phone on its side */
+
+/* phone dashboard. the appendix F grid becomes one column: the live image
+   first (it is what the operator watches), then the detection images as a
+   strip that scrolls sideways, the chart tabs, and the targets and gauges.
+   order only moves the boxes on screen, the page itself is unchanged */
+
+@media (max-width: 759px) {
+  .mock {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin: 12px auto 16px;
+    padding: 0 12px;
+  }
+
+  /* style.css pins these to rows and columns from 1150 px down */
+  .mock > .panel { grid-column: 1; grid-row: auto; }
+
+  .panel.current { order: 1; }
+  .panel.stream { order: 2; }
+  .panel.charts { order: 3; }
+  .panel.bottom { order: 4; }
+
+  /* the image stream filled a tall side column with its own scroll. here it
+     has no height of its own, so the list goes back into the flow as a strip */
+  .stream-list {
+    position: static;
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 10px 12px 12px;
+  }
+
+  .stream-list a {
+    flex: 0 0 132px;
+    margin-bottom: 0;
+  }
+
+  .tab { min-height: 44px; }
+
+  /* stacked, not wrapped: style.css wraps this row, and a wrapping column
+     puts the gauges in a second column off the right edge */
+  .panel.bottom {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 16px;
+    padding: 14px 12px;
+  }
+
+  .bottom-left,
+  .bottom-right { flex: none; }
+
+  /* seven gauges do not fit across a phone, so they sit four to a row */
+  .bottom-right { align-items: stretch; }
+
+  .bars {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px 6px;
+    padding: 12px 8px;
+  }
+
+  .bar { width: auto; }
+  .bar-tube { height: 90px; }
+}
