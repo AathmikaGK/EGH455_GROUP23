@@ -1567,159 +1567,188 @@ function App() {
 
   // the live push connection, everything on the page comes through here
   useEffect(function () {
-    var es = new EventSource("/stream");
+    // one source at a time. the browser retries by itself while the source
+    // is CONNECTING, but an error response (a 502 from nginx while gunicorn
+    // restarts) closes it for good, so then a new one is made after 3 s
+    var current = null;
+    var retry = null;
+    var disposed = false;
 
-    es.addEventListener("snapshot", function (ev) {
-      // sent the moment the connection opens so the panels paint straight away
-      var snap = JSON.parse(ev.data);
-      setLive(true);
-      if (snap.server_time) { clockSkew = msOf(snap.server_time) - Date.now(); }
-      if (snap.own_components) { ownLogs.current = snap.own_components; }
-      // the server says how long it has been quiet, an old database is not live
-      if (snap.quiet !== null && snap.quiet !== undefined) {
-        lastAt.current = Date.now() - snap.quiet * 1000;
-      }
-      if (snap.frame && snap.frame.live && !recFrom.current) {
-        recFrom.current = Date.now();
-      }
-      setData(function (old) {
-        var markers = {};
-        (snap.aruco || []).forEach(function (m) { markers[m.aruco_id] = m; });
-        var at = snap.quiet !== null && snap.quiet !== undefined
-          ? Date.now() - snap.quiet * 1000 : Date.now();
-        (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
-        return {
-          info: snap,
-          reading: snap.reading,
-          valve: snap.valve,
-          gauge: snap.gauge,
-          markers: markers,
-          inView: snap.aruco_in_view || [],
-          drill: snap.drill,
-          logs: snap.logs || [],
-          frame: snap.frame || {},
-          samples: snap.samples,
-          updated: snap.updated,
-          lcd: snap.lcd,
-          lastTarget: newestTarget(snap)
-        };
-      });
-      if (snap.reading) { addReading(setRows, snap.reading); }
-    });
+    function connect() {
+      if (disposed) { return; }
+      var es = new EventSource("/stream");
+      current = es;
 
-    es.addEventListener("reading", function (ev) {
-      var row = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      setData(function (old) {
-        return Object.assign({}, old, {
-          reading: row,
-          samples: has(old.samples) ? old.samples + 1 : 1,
-          updated: row.ts
-        });
-      });
-      addReading(setRows, row);
-
-      // this reading counts towards the average of every target in view right now
-      var now = Date.now();
-      setStats(function (old) {
-        var next = Object.assign({}, old);
-        TARGET_ROWS.forEach(function (r) {
-          var at = seenAt.current[r.type];
-          if (!at || now - at > IN_VIEW_MS) { return; }
-          var s = old[r.type] || { sum: {}, count: {} };
-          var sum = Object.assign({}, s.sum);
-          var count = Object.assign({}, s.count);
-          AVG_COLS.forEach(function (c) {
-            if (!has(row[c.key])) { return; }
-            sum[c.key] = (sum[c.key] || 0) + row[c.key];
-            count[c.key] = (count[c.key] || 0) + 1;
-          });
-          next[r.type] = { sum: sum, count: count };
-        });
-        return next;
-      });
-    });
-
-    es.addEventListener("detection", function (ev) {
-      var row = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      seenAt.current[row.type] = Date.now();
-      announce(row);
-      setData(function (old) {
-        var next = Object.assign({}, old, { updated: row.ts, lastTarget: row });
-        if (row.type === "valve") {
-          next.valve = row;
-        } else if (row.type === "gauge") {
-          next.gauge = row;
-        } else {
-          next.markers = Object.assign({}, old.markers);
-          next.markers[row.aruco_id] = row;
-          if (old.inView.indexOf(row.aruco_id) < 0) {
-            next.inView = old.inView.concat([row.aruco_id]);
-          }
+      es.addEventListener("snapshot", function (ev) {
+        // sent the moment the connection opens so the panels paint straight away
+        var snap = JSON.parse(ev.data);
+        setLive(true);
+        if (snap.server_time) { clockSkew = msOf(snap.server_time) - Date.now(); }
+        if (snap.own_components) { ownLogs.current = snap.own_components; }
+        // the server says how long it has been quiet, an old database is not live
+        if (snap.quiet !== null && snap.quiet !== undefined) {
+          lastAt.current = Date.now() - snap.quiet * 1000;
         }
-        return next;
+        if (snap.frame && snap.frame.live && !recFrom.current) {
+          recFrom.current = Date.now();
+        }
+        setData(function (old) {
+          var markers = {};
+          (snap.aruco || []).forEach(function (m) { markers[m.aruco_id] = m; });
+          var at = snap.quiet !== null && snap.quiet !== undefined
+            ? Date.now() - snap.quiet * 1000 : Date.now();
+          (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
+          return {
+            info: snap,
+            reading: snap.reading,
+            valve: snap.valve,
+            gauge: snap.gauge,
+            markers: markers,
+            inView: snap.aruco_in_view || [],
+            drill: snap.drill,
+            logs: snap.logs || [],
+            frame: snap.frame || {},
+            samples: snap.samples,
+            updated: snap.updated,
+            lcd: snap.lcd,
+            lastTarget: newestTarget(snap)
+          };
+        });
+        if (snap.reading) { addReading(setRows, snap.reading); }
       });
-      if (row.type === "aruco") {
-        markerAt.current[row.aruco_id] = Date.now();
-        addPose(setPoses, row);
-      }
-    });
 
-    es.addEventListener("aruco_view", function (ev) {
-      // comes after every taq frame, the ids in it are the only ones in view now
-      var view = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      setData(function (old) {
-        return Object.assign({}, old, { inView: view.ids, updated: view.ts });
+      es.addEventListener("reading", function (ev) {
+        var row = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        setData(function (old) {
+          return Object.assign({}, old, {
+            reading: row,
+            samples: has(old.samples) ? old.samples + 1 : 1,
+            updated: row.ts
+          });
+        });
+        addReading(setRows, row);
+
+        // this reading counts towards the average of every target in view right now
+        var now = Date.now();
+        setStats(function (old) {
+          var next = Object.assign({}, old);
+          TARGET_ROWS.forEach(function (r) {
+            var at = seenAt.current[r.type];
+            if (!at || now - at > IN_VIEW_MS) { return; }
+            var s = old[r.type] || { sum: {}, count: {} };
+            var sum = Object.assign({}, s.sum);
+            var count = Object.assign({}, s.count);
+            AVG_COLS.forEach(function (c) {
+              if (!has(row[c.key])) { return; }
+              sum[c.key] = (sum[c.key] || 0) + row[c.key];
+              count[c.key] = (count[c.key] || 0) + 1;
+            });
+            next[r.type] = { sum: sum, count: count };
+          });
+          return next;
+        });
       });
-    });
 
-    es.addEventListener("log", function (ev) {
-      // drill events arrive here too, they are log rows with the drill columns
-      var row = JSON.parse(ev.data);
-      // the web viz heartbeat is not payload data, the system log page shows it
-      if (ownLogs.current.indexOf(row.component) >= 0) { return; }
-      lastAt.current = Date.now();
-      setData(function (old) {
-        var logs = old.logs.concat([row]).slice(-25);
-        var next = Object.assign({}, old, { logs: logs, updated: row.ts });
-        if (row.drill_state) { next.drill = row; }
-        return next;
+      es.addEventListener("detection", function (ev) {
+        var row = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        seenAt.current[row.type] = Date.now();
+        announce(row);
+        setData(function (old) {
+          var next = Object.assign({}, old, { updated: row.ts, lastTarget: row });
+          if (row.type === "valve") {
+            next.valve = row;
+          } else if (row.type === "gauge") {
+            next.gauge = row;
+          } else {
+            next.markers = Object.assign({}, old.markers);
+            next.markers[row.aruco_id] = row;
+            if (old.inView.indexOf(row.aruco_id) < 0) {
+              next.inView = old.inView.concat([row.aruco_id]);
+            }
+          }
+          return next;
+        });
+        if (row.type === "aruco") {
+          markerAt.current[row.aruco_id] = Date.now();
+          addPose(setPoses, row);
+        }
       });
-    });
 
-    es.addEventListener("frame", function (ev) {
-      // camera meta only, the picture itself comes down /video_feed
-      var meta = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      if (!recFrom.current) { recFrom.current = Date.now(); }
-      setData(function (old) {
-        return Object.assign({}, old, { frame: meta });
+      es.addEventListener("aruco_view", function (ev) {
+        // comes after every taq frame, the ids in it are the only ones in view now
+        var view = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        setData(function (old) {
+          return Object.assign({}, old, { inView: view.ids, updated: view.ts });
+        });
       });
-    });
 
-    es.addEventListener("capture", function (ev) {
-      // a frame with targets was saved, newest goes to the front of the strip
-      var item = JSON.parse(ev.data);
-      setCaptures(function (old) {
-        return [item].concat(old.filter(function (c) { return c.id !== item.id; })).slice(0, STRIP_KEEP);
+      es.addEventListener("log", function (ev) {
+        // drill events arrive here too, they are log rows with the drill columns
+        var row = JSON.parse(ev.data);
+        // the web viz heartbeat is not payload data, the system log page shows it
+        if (ownLogs.current.indexOf(row.component) >= 0) { return; }
+        lastAt.current = Date.now();
+        setData(function (old) {
+          var logs = old.logs.concat([row]).slice(-25);
+          var next = Object.assign({}, old, { logs: logs, updated: row.ts });
+          if (row.drill_state) { next.drill = row; }
+          return next;
+        });
       });
-    });
 
-    es.addEventListener("lcd", function (ev) {
-      // someone picked a new lcd display, maybe on another computer
-      var lcd = JSON.parse(ev.data);
-      setData(function (old) { return Object.assign({}, old, { lcd: lcd }); });
-    });
+      es.addEventListener("frame", function (ev) {
+        // camera meta only, the picture itself comes down /video_feed
+        var meta = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        if (!recFrom.current) { recFrom.current = Date.now(); }
+        setData(function (old) {
+          return Object.assign({}, old, { frame: meta });
+        });
+      });
 
-    es.onopen = function () { setLive(true); };
-    es.onerror = function () {
-      // the browser reconnects by itself, the header just goes grey meanwhile
-      setLive(false);
+      es.addEventListener("capture", function (ev) {
+        // a frame with targets was saved, newest goes to the front of the strip
+        var item = JSON.parse(ev.data);
+        setCaptures(function (old) {
+          return [item].concat(old.filter(function (c) { return c.id !== item.id; })).slice(0, STRIP_KEEP);
+        });
+      });
+
+      es.addEventListener("lcd", function (ev) {
+        // someone picked a new lcd display, maybe on another computer
+        var lcd = JSON.parse(ev.data);
+        setData(function (old) { return Object.assign({}, old, { lcd: lcd }); });
+      });
+
+      es.onopen = function () { setLive(true); };
+      es.onerror = function () {
+        // the browser reconnects by itself, the header just goes grey meanwhile
+        setLive(false);
+        // except after an error response, then it gives up, so start again
+        if (es === current && es.readyState === EventSource.CLOSED) { reconnectLater(); }
+      };
+    }
+
+    function reconnectLater() {
+      // one timer at most, and nothing once the page has gone
+      if (disposed || retry) { return; }
+      retry = setTimeout(function () {
+        retry = null;
+        current.close();
+        connect();
+      }, 3000);
+    }
+
+    connect();
+
+    return function () {
+      disposed = true;
+      clearTimeout(retry);
+      current.close();
     };
-
-    return function () { es.close(); };
   }, []);
 
   function pickLcd(mode) {
