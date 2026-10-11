@@ -1269,6 +1269,16 @@ function ImageHistory(props) {
     if (index > frames.length - 1 && frames.length > 0) { setIndex(frames.length - 1); }
   }, [index, playing, frames.length]);
 
+  // the thumbnail strip scrolls sideways, keep the current frame's thumbnail
+  // in view (it starts on the newest, at the far right). only the strip scrolls
+  var strip = useRef(null);
+  useEffect(function () {
+    var box = strip.current;
+    var on = box && box.querySelector("a.on");
+    if (!on || box.scrollWidth <= box.clientWidth) { return; }
+    box.scrollLeft = on.offsetLeft - box.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
+  }, [index, frames.length]);
+
   function submit(ev) {
     ev.preventDefault();
     load(from, to, filter);
@@ -1354,7 +1364,7 @@ function ImageHistory(props) {
           h("select", { value: speed, onChange: function (ev) { setSpeed(Number(ev.target.value)); } },
             [1, 2, 5].map(function (s) { return h("option", { key: s, value: s }, s + "x"); })),
           h("a", { className: "btn", href: cur.url, download: "frame_" + cur.id + ".jpg" }, "Download")),
-        h("div", { className: "thumbs" }, thumbs)),
+        h("div", { className: "thumbs", ref: strip }, thumbs)),
       h("div", { className: "history-side" },
         h("div", { className: "k" }, "Frame " + (index + 1) + " of " + frames.length),
         h("div", { className: "when" }, dateTimeOf(cur.ts)),

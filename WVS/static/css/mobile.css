@@ -134,3 +134,57 @@
 @media (max-width: 400px) {
   .brand .sub { display: none; }
 }
+
+/* logged data, system log and image history forms. each date box gets its
+   own line, the buttons share what is left, and every control is finger
+   sized. a select is never wider than the card (the subsystem names are long) */
+
+@media (max-width: 759px) {
+  .form-row { gap: 8px; }
+  .form-row label { flex: 1 1 100%; }
+  .form-row .btn { flex: 1 1 auto; }
+
+  .form-row select,
+  .form-row input[type="datetime-local"],
+  .form-row .btn,
+  .controls .btn,
+  .controls select { min-height: 44px; }
+
+  .form-row select,
+  .form-row input[type="datetime-local"] { width: 100%; max-width: 100%; }
+
+  .form-row label.check { min-height: 44px; padding-bottom: 0; }
+  .form-row label.check input { width: 20px; height: 20px; }
+
+  /* the system log message wraps instead of making the table scroll for it.
+     only system log rows carry a level class, so the other tables keep theirs */
+  .table-wrap tr.info td:nth-child(4),
+  .table-wrap tr.warning td:nth-child(4),
+  .table-wrap tr.error td:nth-child(4) {
+    white-space: normal;
+    min-width: 220px;
+  }
+
+  .table-wrap { max-height: 70vh; }
+
+  /* replay controls: the slider gets its own full width line on top, the
+     buttons wrap underneath */
+  .controls { flex-wrap: wrap; gap: 6px; }
+  .controls input[type="range"] { flex: 1 1 100%; order: -1; min-height: 32px; }
+  .controls .btn { flex: 1 1 auto; text-align: center; }
+}
+
+/* the recent log under the drill. lines wrap rather than run off the side,
+   and the box is tall enough to read a few of them. the time keeps its spaces */
+
+@media (max-width: 759px) {
+  .log {
+    height: 180px;
+    overscroll-behavior: contain;
+  }
+
+  .log div {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
