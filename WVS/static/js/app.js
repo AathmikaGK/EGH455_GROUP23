@@ -597,9 +597,16 @@ function axisTitle(text) {
   return { display: !!text, text: text || "", color: BLACK, font: { family: FONT, size: 13, weight: "600" } };
 }
 
+// phones get a lighter time axis: a label every 10 s, never tilted, and no
+// axis titles (the name above each chart already says what and which unit).
+// same breakpoint as mobile.css. no matchMedia means the desktop axis
+var PHONE = window.matchMedia ? window.matchMedia("(max-width: 759px)") : { matches: false };
+var PHONE_STEP = 10000;
+
 function makeScales(props) {
+  var phone = PHONE.matches;
   var axis = {
-    title: axisTitle(props.yTitle),
+    title: axisTitle(phone ? "" : props.yTitle),
     grid: { color: GRID, drawTicks: false },
     border: { color: GRID },
     ticks: { color: BLACK, font: { size: 12 }, maxTicksLimit: 5, padding: 4 }
@@ -611,13 +618,13 @@ function makeScales(props) {
       type: "linear",
       min: now - CHART_SPAN,
       max: now,
-      title: axisTitle("Time (hh:mm:ss)"),
+      title: axisTitle(phone ? "" : "Time (hh:mm:ss)"),
       grid: { color: GRID, drawTicks: false },
       border: { color: GRID },
       ticks: {
         // a label every step, tilted when the chart is too narrow to fit them flat
-        color: BLACK, font: { size: 11 }, minRotation: 0, maxRotation: 50, autoSkip: false,
-        stepSize: CHART_STEP, includeBounds: false,
+        color: BLACK, font: { size: 11 }, minRotation: 0, maxRotation: phone ? 0 : 50, autoSkip: phone,
+        stepSize: phone ? PHONE_STEP : CHART_STEP, includeBounds: false,
         callback: function (value) { return hms(value); }
       }
     },
@@ -628,7 +635,7 @@ function makeScales(props) {
   if (props.twoAxis) {
     scales.y2 = {
       position: "right",
-      title: axisTitle(props.y2Title),
+      title: axisTitle(phone ? "" : props.y2Title),
       grid: { drawOnChartArea: false },
       border: { color: GRID },
       ticks: { color: BLACK, font: { size: 12 }, maxTicksLimit: 5 }
@@ -696,7 +703,20 @@ function LineChart(props) {
       }
     });
 
-    return function () { chart.current.destroy(); };
+    // a phone turned or a window resized across the phone breakpoint
+    function resized() {
+      chart.current.options.scales = makeScales(props);
+      chart.current.update("none");
+    }
+    // safari before 14 only has addListener
+    if (PHONE.addEventListener) { PHONE.addEventListener("change", resized); }
+    else if (PHONE.addListener) { PHONE.addListener(resized); }
+
+    return function () {
+      if (PHONE.removeEventListener) { PHONE.removeEventListener("change", resized); }
+      else if (PHONE.removeListener) { PHONE.removeListener(resized); }
+      chart.current.destroy();
+    };
   }, []);
 
   // runs on every render, and the page renders every second, so the time
