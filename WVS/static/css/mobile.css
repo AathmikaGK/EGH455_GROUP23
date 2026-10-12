@@ -1,34 +1,52 @@
-/* phone and tablet overrides. loaded after style.css, which stays the desktop
-   design. every rule here sits inside a media query, so the desktop layout
-   (760 px wide and up) is exactly what style.css draws
+/* the Mobile GCS presentation. loaded after style.css, which stays the desktop
+   Web Interface. every rule here sits inside a media query, so the desktop
+   layout (760 px wide and up) is exactly what style.css draws. app.js adds a
+   few phone-only parts (operator strip, bottom menu icons, sensor cards,
+   marker cards) behind the same queries
 
    breakpoints, desktop first like style.css
      style.css   max-width: 1150px   dashboard drops to two columns
      style.css   max-width: 900px    readings tiles go 4 -> 2
      style.css   max-width: 760px    target cards and drill strip stack
-     phone       max-width: 759px    everything below, one column
+     phone       max-width: 759px    the mobile GCS, one column, bottom menu
      landscape   (orientation: landscape) and (max-height: 500px), a phone on its side */
 
-/* phone dashboard. the appendix F grid becomes one column: the live image
-   first (it is what the operator watches), then the detection images as a
-   strip that scrolls sideways, the chart tabs, and the targets and gauges.
-   order only moves the boxes on screen, the page itself is unchanged */
+/* phone dashboard, camera first. the appendix F grid becomes one column in
+   operator order: the live image with the target just found, the live
+   sensors, the chart, the detection images, then the targets table and the
+   drill. the bottom card is opened up (display: contents) so its two halves
+   can be placed on their own. order only moves the boxes on screen */
 
 @media (max-width: 759px) {
   .mock {
     grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-    margin: 12px auto 16px;
+    gap: 14px;
+    margin: 14px auto 16px;
     padding: 0 12px;
   }
 
   /* style.css pins these to rows and columns from 1150 px down */
   .mock > .panel { grid-column: 1; grid-row: auto; }
 
+  .panel.bottom { display: contents; }
   .panel.current { order: 1; }
-  .panel.stream { order: 2; }
+  .bottom-right { order: 2; }
   .panel.charts { order: 3; }
-  .panel.bottom { order: 4; }
+  .panel.stream { order: 4; }
+  .bottom-left { order: 5; }
+
+  /* the two halves of the bottom card become cards of their own */
+  .bottom-left,
+  .bottom-right {
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .bottom-left { padding: 14px 12px; }
+  .bottom-right { overflow: hidden; align-items: stretch; }
 
   /* the image stream filled a tall side column with its own scroll. here it
      has no height of its own, so the list goes back into the flow as a strip */
@@ -45,52 +63,146 @@
     flex: 0 0 132px;
     margin-bottom: 0;
   }
+}
 
-  .tab { min-height: 44px; }
+/* live sensors as cards (app.js SensorCards on a phone): what, how much, unit */
 
-  /* stacked, not wrapped: style.css wraps this row, and a wrapping column
-     puts the gauges in a second column off the right edge */
-  .panel.bottom {
-    flex-direction: column;
-    flex-wrap: nowrap;
-    gap: 16px;
-    padding: 14px 12px;
-  }
-
-  .bottom-left,
-  .bottom-right { flex: none; }
-
-  /* seven gauges do not fit across a phone, so they sit four to a row */
-  .bottom-right { align-items: stretch; }
-
-  .bars {
+@media (max-width: 759px) {
+  .sensor-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px 6px;
-    padding: 12px 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
   }
 
-  .bar { width: auto; }
-  .bar-tube { height: 90px; }
+  .sensor-card {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel-soft);
+    padding: 10px 12px 12px;
+  }
+
+  /* seven readings, so the last one has the row to itself */
+  .sensor-card:last-child { grid-column: 1 / -1; }
+
+  .sensor-card .k {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--dimmer);
+  }
+
+  .sensor-card .v {
+    margin-top: 4px;
+    font-size: 26px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .sensor-card .v.none { color: var(--dimmer); }
+
+  .sensor-card .unit {
+    margin-left: 4px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--dim);
+  }
+
+  .bars-note { margin: 0 12px 12px; }
+}
+
+@media (max-width: 400px) {
+  .sensor-card .v { font-size: 22px; }
 }
 
 /* identified targets. a grid column is only as narrow as its widest content,
-   so the aruco table pushed the cards 145 px past a 360 px screen. minmax(0)
-   lets the column shrink and the table scrolls inside its card instead */
+   so minmax(0) lets it shrink to the screen. the valve state and gauge
+   reading are made bigger, a gauge under the drill threshold gets a red pill,
+   and the aruco markers are cards (app.js), green in view, grey when lost */
 
 @media (max-width: 759px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
+
+  .card { border-radius: 14px; }
+  .card .big { font-size: 36px; }
+
+  .card .note.alert {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--red-soft);
+    font-weight: 700;
+  }
+
+  .found-title { font-size: 22px; }
+
+  .marker-cards { display: grid; gap: 10px; margin-top: 10px; }
+
+  .marker-card {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--green);
+    border-radius: 12px;
+    background: var(--panel);
+    padding: 10px 12px;
+  }
+
+  .marker-card.lost { border-left-color: #94a3b8; background: var(--panel-soft); }
+
+  .marker-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 10px;
+    margin-bottom: 6px;
+  }
+
+  .marker-id { font-size: 18px; font-weight: 700; color: var(--blue); }
+  .marker-card.lost .marker-id { color: var(--dimmer); }
+
+  .marker-state {
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--green-soft);
+    color: var(--green);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .marker-card.lost .marker-state { background: var(--line-soft); color: var(--dim); font-style: italic; }
+
+  .marker-pos {
+    display: flex;
+    gap: 10px;
+    padding: 2px 0;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .marker-pos span {
+    flex: none;
+    width: 58px;
+    padding-top: 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--dimmer);
+  }
 }
 
-/* phone header. the brand and the live lamp share the first row, the log
-   timer, lcd picker and voice button the second. the hud chips become cells
-   of the header grid (display: contents), so nothing in app.js changes.
-   the navigation menu under it is the part that stays stuck to the top */
+/* phone header. the brand on its own line, the lcd picker and voice button
+   under it. the link state and log timer move into the operator strip below
+   it (app.js), so their header chips are hidden here. the hud chips become
+   cells of the header grid (display: contents) */
 
 @media (max-width: 759px) {
   .topbar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
@@ -99,19 +211,14 @@
   .spacer { display: none; }
   .hud { display: contents; }
 
-  .brand { grid-column: 1 / 3; grid-row: 1; min-width: 0; padding-left: 40px; }
+  .brand { grid-column: 1 / -1; min-width: 0; padding-left: 40px; }
   .brand::before { width: 30px; height: 30px; margin-top: -15px; }
   .brand .name { font-size: 17px; white-space: nowrap; }
 
   .hud-item { min-width: 0; padding: 5px 8px; }
   .hud-item .v { min-width: 0; }
-
-  /* the lamp says LIVE / STANDBY / OFFLINE itself, so its label goes */
-  .hud-item:nth-child(1) { grid-column: 3; grid-row: 1; justify-self: end; }
-  .hud-item:nth-child(1) .k { display: none; }
-  .hud-item:nth-child(2) { grid-column: 1; grid-row: 2; align-self: stretch; justify-content: center; }
-  .hud-item:nth-child(3) { grid-column: 2; grid-row: 2; }
-  .hud-item:nth-child(4) { grid-column: 3; grid-row: 2; }
+  .hud-item:nth-child(1),
+  .hud-item:nth-child(2) { display: none; }
 
   /* the picker and the voice button fill their chip and are finger sized */
   .hud-item select,
@@ -122,12 +229,180 @@
 
   .hud-item .btn { padding: 4px 6px; line-height: 1.2; }
 
-  .nav { padding: 0 6px; }
-  .nav a { padding: 12px 12px 11px; }
+  /* page cards: more room between them, rounder, headings that stand out */
+  .page { padding: 14px 12px 20px; }
+  .panel { border-radius: 16px; }
 
-  /* page gutters, the desktop 22 px is a lot of a 360 px screen */
-  .page { padding: 12px 12px 20px; }
-  .section { padding: 14px 12px 16px; margin-bottom: 12px; }
+  .section {
+    padding: 16px 14px 18px;
+    margin-bottom: 16px;
+    border-radius: 16px;
+  }
+
+  .section h2 { font-size: 18px; }
+}
+
+/* phone menu: an app style bar along the bottom, icon over a short name, the
+   seven pages as equal tabs. it sits above the gesture bar (safe area) and
+   the page gets room at the bottom so nothing hides behind it */
+
+@media (max-width: 759px) {
+  /* the menu is 64 px, a little more so the last card clears it */
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+
+  .nav {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    overflow: visible;
+    border-top: 1px solid var(--line);
+    border-bottom: none;
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+  }
+
+  .nav a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 60px;
+    padding: 6px 0 5px;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    border-bottom: none;
+    border-top: 3px solid transparent;
+  }
+
+  .nav a.on {
+    color: var(--blue);
+    border-top-color: var(--blue);
+    background: var(--blue-soft);
+  }
+}
+
+/* the operator strip (app.js, phones only). a dark panel like the camera
+   screens, so it reads as the ground station's status display: link state,
+   data age and log timer, then the last target and the gauge */
+
+@media (max-width: 759px), (orientation: landscape) and (max-height: 500px) {
+  .ops {
+    margin: 12px 12px 0;
+    padding: 10px 14px 12px;
+    border-radius: 16px;
+    background: #0b1220;
+    color: #e2e8f0;
+    box-shadow: var(--shadow);
+  }
+
+  .ops-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+  }
+
+  .ops-lamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #4ade80;
+  }
+
+  .ops-lamp .bulb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.25);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  .ops-lamp.off { color: #94a3b8; }
+  .ops-lamp.off .bulb { background: #94a3b8; box-shadow: none; animation: none; }
+
+  .ops-meta { font-size: 13px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+  .ops-row .ops-meta:last-child { margin-left: auto; }
+
+  .ops-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .ops-k {
+    flex: none;
+    width: 52px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+
+  .ops-v { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: #ffffff; }
+  .ops-time { font-size: 13px; font-weight: 400; color: #94a3b8; }
+  .ops-line.alert .ops-v { color: #fca5a5; }
+
+  .ops-flag {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(74, 222, 128, 0.15);
+    color: #4ade80;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .ops-flag.lost { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-lamp .bulb { animation: none; }
+}
+
+/* charts on a phone: one chart at a time (the dashboard's tabs, which the air
+   page uses too on a phone), with the tabs as finger sized pills that scroll
+   sideways when they do not fit */
+
+@media (max-width: 759px) {
+  .tabs {
+    gap: 6px;
+    padding: 10px;
+    scrollbar-width: none;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 8px 16px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-soft);
+  }
+
+  .tab.on {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #ffffff;
+  }
+
+  .chart-box.tall { min-height: 240px; }
 }
 
 /* logged data, system log and image history forms. each date box gets its
@@ -184,6 +459,15 @@
   }
 }
 
+/* the text links in card headings (image history, system log) get a finger
+   sized hit area. the padding is taken back with a negative margin, so the
+   words stay exactly where they were */
+
+@media (max-width: 759px) {
+  .h2-link { display: inline-block; padding: 12px 0; margin: -12px 0; }
+  .h2-link.block { margin: 0; }
+}
+
 /* a phone on its side. a full width feed is taller than the screen, so the
    box is capped at 68% of the screen height, worked back into a width from
    its own shape (16:10 on the video page, 4:3 on the dashboard). the picture
@@ -203,24 +487,31 @@
   }
 
   .viewer { max-height: 68vh; max-height: 68svh; }
-}
 
-/* the header is the desktop one at this width, so give back a little height */
-@media (orientation: landscape) and (max-height: 500px) {
+  /* the header is the desktop one at this width, so give back a little height */
   .topbar { padding: 6px 16px; }
   .hud-item { padding: 3px 10px; }
-}
 
-/* the text links in card headings (image history, system log) get a finger
-   sized hit area. the padding is taken back with a negative margin, so the
-   words stay exactly where they were */
-@media (max-width: 759px) {
-  .h2-link { display: inline-block; padding: 12px 0; margin: -12px 0; }
-  .h2-link.block { margin: 0; }
+  /* the header already shows the link state and log timer here, so the
+     operator strip is one slim line: the target and the gauge */
+  .ops {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 24px;
+    margin: 8px 22px 0;
+    padding: 6px 14px;
+  }
+
+  .ops-row { display: none; }
+  .ops-line { margin: 0; padding: 0; border: none; }
+  .ops-k { width: auto; }
+  .ops-v { font-size: 14px; }
 }
 
 /* the MOBILE chip in the header is solid on a phone, either way up, so the
    two presentations are told apart at a glance (style.css has the soft one) */
+
 @media (max-width: 759px), (orientation: landscape) and (max-height: 500px) {
   .mode-tag {
     background: var(--blue);

@@ -26,14 +26,32 @@ Chart.defaults.font.family = FONT;
 
 // the sections of the navigation menu (HLO-M-3 item 1), the id is the #hash
 var PAGES = [
-  { id: "dashboard", name: "Dashboard" },
-  { id: "video", name: "Live video feed" },
-  { id: "targets", name: "Identified targets" },
-  { id: "air", name: "Air quality charts" },
-  { id: "logged", name: "Logged data" },
-  { id: "images", name: "Image history" },
-  { id: "logs", name: "System log" }
+  { id: "dashboard", name: "Dashboard", short: "Home" },
+  { id: "video", name: "Live video feed", short: "Video" },
+  { id: "targets", name: "Identified targets", short: "Targets" },
+  { id: "air", name: "Air quality charts", short: "Air" },
+  { id: "logged", name: "Logged data", short: "Data" },
+  { id: "images", name: "Image history", short: "Images" },
+  { id: "logs", name: "System log", short: "Log" }
 ];
+
+// line icons for the phone's bottom menu, 24 x 24 stroke paths
+var PAGE_ICONS = {
+  dashboard: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  video: "M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5",
+  targets: "M12 3v4M12 17v4M3 12h4M17 12h4M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12",
+  air: "M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7",
+  logged: "M4 5h16v14H4zM4 10h16M4 15h16M10 5v14",
+  images: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 8.5h.01",
+  logs: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"
+};
+
+function PageIcon(props) {
+  return h("svg", {
+    viewBox: "0 0 24 24", width: 22, height: 22, fill: "none", stroke: "currentColor",
+    strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+  }, h("path", { d: PAGE_ICONS[props.id] }));
+}
 
 var LCD_NAMES = { ip: "IP address", detection: "Live detection", temperature: "Temperature" };
 
@@ -312,9 +330,52 @@ function NavBar(props) {
     box.scrollLeft = on.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
   }, [props.page]);
 
+  // a phone gets the menu as a bottom bar (mobile.css): icon over a short name
+  var phone = PHONE.matches;
   return h("nav", { className: "nav", ref: nav }, PAGES.map(function (p) {
-    return h("a", { key: p.id, href: "#" + p.id, className: p.id === props.page ? "on" : "" }, p.name);
+    return h("a", {
+      key: p.id, href: "#" + p.id, className: p.id === props.page ? "on" : "",
+      "aria-label": phone ? p.name : undefined
+    }, phone ? [h(PageIcon, { key: "i", id: p.id }), h("span", { key: "t" }, p.short)] : p.name);
   }));
+}
+
+// the phone's operator status strip under the header: link state, how fresh
+// the data is, the last target found and the gauge against the drill
+// threshold. all from state the page already has, nothing is worked out here
+function OperatorHero(props) {
+  var stream = streamState(props);
+  var quiet = props.quiet;
+  var fresh = quiet === null ? "No data yet"
+    : quiet < 1 ? "Data just now"
+    : quiet < 120 ? "Data " + num(quiet, 0) + " s ago"
+    : "Data " + Math.floor(quiet / 60) + " min ago";
+
+  var t = props.target;
+  var flag = null;
+  if (t && t.type === "aruco") { flag = props.inView(t.aruco_id) ? "In view" : "Lost"; }
+
+  var g = props.gauge;
+  var reading = g && has(g.gauge_value);
+  var below = reading && g.gauge_value < props.limit;
+
+  return h("div", { className: "ops" },
+    h("div", { className: "ops-row" },
+      h("span", { className: "ops-lamp" + (stream.on ? "" : " off") }, h("span", { className: "bulb" }), stream.text),
+      h("span", { className: "ops-meta" }, fresh),
+      h("span", { className: "ops-meta" }, "Log " + props.timer)),
+    h("div", { className: "ops-line" },
+      h("span", { className: "ops-k" }, "Target"),
+      h("span", { className: "ops-v" }, t ? targetText(t) : "No targets detected yet",
+        t ? h("span", { className: "ops-time" }, "  " + clockOf(t.ts)) : null),
+      flag ? h("span", { className: "ops-flag" + (flag === "Lost" ? " lost" : "") }, flag) : null),
+    h("div", { className: "ops-line" + (below ? " alert" : "") },
+      h("span", { className: "ops-k" }, "Gauge"),
+      h("span", { className: "ops-v" }, reading
+        ? num(g.gauge_value, 2) + " " + (g.gauge_units || "bar")
+        : "No reading yet"),
+      reading ? h("span", { className: "ops-flag" + (below ? " lost" : "") },
+        (below ? "Below " : "Above ") + num(props.limit, 1) + " bar") : null));
 }
 
 function AgeBadge(props) {
@@ -517,6 +578,25 @@ function ArucoCard(props) {
   if (markers.length === 0) {
     return h("div", { className: "card wide" }, head,
       h("div", { className: "empty" }, "No markers detected yet"));
+  }
+
+  // a phone lists each marker as a card, the same numbers without a wide table
+  if (PHONE.matches) {
+    return h("div", { className: "card wide" }, head,
+      h("div", { className: "marker-cards" }, markers.map(function (m) {
+        var on = props.inView(m.aruco_id);
+        return h("div", { key: m.aruco_id, className: "marker-card" + (on ? " on" : " lost") },
+          h("div", { className: "marker-head" },
+            h("span", { className: "marker-id" }, "Marker " + m.aruco_id),
+            h("span", { className: "marker-state" }, on ? "In view" : "Lost, last seen " + clockOf(m.ts))),
+          has(m.uav_z) ? h("div", { className: "marker-pos" }, h("span", null, "UAV"),
+            "x " + num(m.uav_x, 3) + "  y " + num(m.uav_y, 3) + "  z " + num(m.uav_z, 3) + " m") : null,
+          h("div", { className: "marker-pos" }, h("span", null, "Camera"),
+            "x " + num(m.x, 3) + "  y " + num(m.y, 3) + "  z " + num(m.z, 3) + " m"),
+          h("div", { className: "marker-pos" }, h("span", null, "Range"), num(range(m), 3) + " m"));
+      })),
+      h("div", { className: "subnote" },
+        "Camera = the marker's position seen from the camera. UAV = the UAV's position relative to the marker."));
   }
 
   var names = ["ID", "Camera x (m)", "Camera y (m)", "Camera z (m)"];
@@ -825,13 +905,13 @@ var CHART_TABS = [
 
 // the bar gauges. lo / hi only scale the bar, the number above it is the reading
 var SENSOR_BARS = [
-  { key: "temperature", name: "Temp.", unit: "°C", lo: 0, hi: 50, places: 1 },
-  { key: "humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
-  { key: "pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 1 },
-  { key: "light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
-  { key: "oxidising_ppm", name: "Oxidising", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "reducing_ppm", name: "Reducing", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "ammonia_ppm", name: "NH3", unit: "ppm", lo: 0, hi: 5, places: 2 }
+  { key: "temperature", long: "Temperature", name: "Temp.", unit: "°C", lo: 0, hi: 50, places: 1 },
+  { key: "humidity", long: "Humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
+  { key: "pressure", long: "Pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 1 },
+  { key: "light", long: "Light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
+  { key: "oxidising_ppm", long: "Oxidising", name: "Oxidising", unit: "ppm", lo: 0, hi: 5, places: 2 },
+  { key: "reducing_ppm", long: "Reducing", name: "Reducing", unit: "ppm", lo: 0, hi: 5, places: 2 },
+  { key: "ammonia_ppm", long: "Ammonia (NH3)", name: "NH3", unit: "ppm", lo: 0, hi: 5, places: 2 }
 ];
 
 var TARGET_ROWS = [
@@ -896,7 +976,7 @@ function CurrentImage(props) {
 }
 
 function ChartTabs(props) {
-  var [tab, setTab] = useState("position");
+  var [tab, setTab] = useState(props.start || "position");
   var rows = props.rows;
 
   var chart;
@@ -924,7 +1004,7 @@ function ChartTabs(props) {
   }
 
   return h("div", { className: "panel charts" },
-    h("div", { className: "tabs" }, CHART_TABS.map(function (t) {
+    h("div", { className: "tabs" }, (props.tabs || CHART_TABS).map(function (t) {
       return h("button", {
         key: t.id, className: "tab" + (t.id === tab ? " on" : ""),
         onClick: function () { setTab(t.id); }
@@ -999,6 +1079,20 @@ function SensorBars(props) {
   }));
 }
 
+// the same readings as the bars, as cards on a phone: name, value and unit
+function SensorCards(props) {
+  var r = props.reading || {};
+  return h("div", { className: "sensor-cards" },
+    h("div", { className: "panel-title" }, "Live sensors"),
+    h("div", { className: "sensor-grid" }, SENSOR_BARS.map(function (b) {
+      var v = r[b.key];
+      return h("div", { key: b.key, className: "sensor-card" },
+        h("div", { className: "k" }, b.long),
+        h("div", { className: "v" + (has(v) ? "" : " none") }, num(v, b.places),
+          h("span", { className: "unit" }, b.unit)));
+    })));
+}
+
 function DrillLine(props) {
   var drill = props.drill;
   var state = drill && drill.drill_state ? drill.drill_state : null;
@@ -1025,7 +1119,7 @@ function Dashboard(props) {
         h("div", { className: "subnote" }, "Averages cover this browser session, using the readings taken while each target was in view (seen in the last " + IN_VIEW_MS / 1000 + " s)."),
         h(DrillLine, { drill: props.drill, limit: props.limit })),
       h("div", { className: "bottom-right" },
-        h(SensorBars, { reading: props.reading }),
+        PHONE.matches ? h(SensorCards, { reading: props.reading }) : h(SensorBars, { reading: props.reading }),
         h("div", { className: "bars-note" },
           h(AgeBadge, { lag: props.reading ? props.reading.capture_lag : null, limit: props.ageLimit })))));
 }
@@ -1867,7 +1961,9 @@ function App() {
     valve: data.valve, gauge: data.gauge, markers: markerList, limit: limit, gaugeMax: gaugeMax,
     inView: inView, poseRows: poses, poseId: poseId
   });
-  var air = h(AirPanel, { rows: rows });
+  var air = PHONE.matches
+    ? h(ChartTabs, { rows: rows, poseRows: poses, poseId: poseId, start: "gas", tabs: CHART_TABS.slice(1) })
+    : h(AirPanel, { rows: rows });
   var readings = h(ReadingsSection, { reading: data.reading, samples: data.samples, ageLimit: ageLimit });
   var drill = h(DrillPanel, { drill: data.drill, logs: data.logs, limit: limit });
 
@@ -1912,6 +2008,10 @@ function App() {
       sound: sound, toggleMute: toggleMute, unlock: unlockSpeech
     }),
     h(NavBar, { page: page }),
+    HANDHELD.matches ? h(OperatorHero, {
+      info: data.info, live: live, quiet: clock.quiet, timer: clock.timer,
+      target: data.lastTarget, gauge: data.gauge, limit: limit, inView: inView
+    }) : null,
     body);
 }
 
