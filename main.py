@@ -13,26 +13,6 @@ INGEST_URL = os.environ.get(
 )
 INGEST_INTERVAL_SECONDS = float(os.environ.get("WVS_INGEST_INTERVAL", "4.0"))
 
-LCD_URL = os.environ.get("WVS_LCD_URL", "http://127.0.0.1:8000/api/lcd")
-LCD_POLL_SECONDS = float(os.environ.get("WVS_LCD_POLL", "2.0"))
-
-# web interface lcd choice -> DisplayController mode
-LCD_MODES = {"ip": 0, "temperature": 1, "detection": 2}
-
-
-def fetch_lcd_choice():
-    """
-    The LCD display picked on the web interface, as (mode, changed),
-    or None when the web viz cannot be reached.
-    """
-    try:
-        with urlopen(LCD_URL, timeout=0.5) as response:
-            state = json.loads(response.read().decode("utf-8"))
-    except (OSError, ValueError):
-        return None
-
-    return state.get("mode"), state.get("changed")
-
 
 def send_reading(reading):
     payload = {
@@ -75,25 +55,11 @@ def main():
     # 1 = Temperature
     # 2 = Image Feed (not implemented)
 
+    # also follows the screen picked on the web interface (see DisplayController._poll_web)
     display_controller = DisplayController(0)
     last_ingest = 0.0
-    last_lcd_poll = 0.0
-    last_lcd_change = None
 
     while True:
-
-        # a new pick on the web interface sets the lcd once, the proximity
-        # sensor can still cycle it after that
-        if time.monotonic() - last_lcd_poll >= LCD_POLL_SECONDS:
-            choice = fetch_lcd_choice()
-            last_lcd_poll = time.monotonic()
-
-            if choice is not None:
-                mode, changed = choice
-                if changed is not None and changed != last_lcd_change and mode in LCD_MODES:
-                    display_controller.set_mode(LCD_MODES[mode])
-                    last_lcd_change = changed
-                    print("[webviz] lcd set to %s" % mode)
 
         reading = sensor_controller.get_reading()
         print(reading)

@@ -1,11 +1,24 @@
 import socket
 import colorsys
 import time
+import json
+import os
+from urllib.request import urlopen
 
 import st7735
 
 from fonts.ttf import RobotoMedium as UserFont
 from PIL import Image, ImageDraw, ImageFont
+
+
+# Web viz endpoint holding the LCD screen picked on the dashboard (HLO-M-5).
+# Defaults to the WVS server on this Pi. WVS_LCD_URL points it elsewhere.
+LCD_URL = os.environ.get("WVS_LCD_URL", "http://127.0.0.1:8000/api/lcd")
+LCD_POLL_SECONDS = float(os.environ.get("WVS_LCD_POLL", "2.0"))
+
+# WVS names the screens, this class numbers them. Maps a name from
+# GET /api/lcd to the mode used by update().
+LCD_MODES = {"ip": 0, "temperature": 1, "detection": 2}
 
 
 class DisplayController:
@@ -17,6 +30,13 @@ class DisplayController:
         self.last_mode_change = 0
         self.proximity_threshold = 1500
         self.debounce_time = 0.5
+
+        # Time of the last GET /api/lcd, so the web viz is asked every
+        # LCD_POLL_SECONDS rather than on every 0.1 s update().
+        self.last_lcd_poll = 0.0
+        # "changed" timestamp of the last dashboard pick already applied. Each
+        # pick is applied once, so the proximity sensor can still cycle after it.
+        self.last_lcd_change = None
 
         self.display = st7735.ST7735(
             port=0,
@@ -45,11 +65,23 @@ class DisplayController:
             20
         )
 
-        self.graph_top = 25
+        # Smaller font so the Enviro and Pi temperatures fit as two lines
+        # above the graph on the 160x80 screen.
+        self.small_font = ImageFont.truetype(
+            UserFont,
+            14
+        )
+
+        # Graph starts below the two temperature lines (2 x 15 px + gap).
+        self.graph_top = 32
 
         self.temperature_history = [1] * self.width
 
     def update(self, reading):
+
+        # Apply a dashboard pick before the proximity check, so a hand wave
+        # in the same cycle still takes priority.
+        self._poll_web()
 
         self._handle_proximity(
             reading["proximity"]
@@ -60,7 +92,8 @@ class DisplayController:
 
         elif self.mode == 1:
             self.show_temperature_graph(
-                reading["temperature"]
+                reading["temperature"],
+                reading.get("cpu_temperature")
             )
             
         elif self.mode == 2:
@@ -71,6 +104,45 @@ class DisplayController:
         Future web-interface entry point.
         """
         self.mode = mode
+
+    def _fetch_lcd_choice(self):
+        """
+        The LCD screen picked on the web interface, as (mode, changed),
+        or None when the web viz cannot be reached.
+        """
+        try:
+            # 0.5 s timeout: if WVS hangs, the LCD loop stalls for at most half a second.
+            with urlopen(LCD_URL, timeout=0.5) as response:
+                state = json.loads(response.read().decode("utf-8"))
+        except (OSError, ValueError):
+            # WVS not running, unreachable or sent bad JSON.
+            return None
+
+        return state.get("mode"), state.get("changed")
+
+    def _poll_web(self):
+        """
+        Every LCD_POLL_SECONDS, switches to the screen picked on the web
+        dashboard if it is a new pick. "changed" is None until someone picks,
+        so at start-up the LCD keeps initial_mode.
+        """
+        if time.monotonic() - self.last_lcd_poll < LCD_POLL_SECONDS:
+            return
+
+        choice = self._fetch_lcd_choice()
+        self.last_lcd_poll = time.monotonic()
+
+        if choice is None:
+            # Keep showing the current screen while WVS is unavailable.
+            return
+
+        mode, changed = choice
+        # Same timestamp means the pick was already applied; an unknown
+        # screen name is ignored.
+        if changed is not None and changed != self.last_lcd_change and mode in LCD_MODES:
+            self.set_mode(LCD_MODES[mode])
+            self.last_lcd_change = changed
+            print("[webviz] lcd set to %s" % mode)
 
     def _handle_proximity(self, proximity):
 
@@ -126,7 +198,7 @@ class DisplayController:
 
         self.display.display(self.image)
 
-    def show_temperature_graph(self, temperature):
+    def show_temperature_graph(self, temperature, cpu_temperature=None):
 
         self.temperature_history = (
             self.temperature_history[1:]
@@ -179,10 +251,21 @@ class DisplayController:
                 fill=(0, 0, 0)
             )
 
+        # Both temperatures required on the LCD (REQ-U-12, HLO-M-5): the
+        # calibrated Enviro air temperature, which the graph tracks, and the
+        # Pi SoC temperature. "--" if the Pi value is missing from the reading.
         self.draw.text(
-            (0, 0),
-            f"Temp: {temperature:.1f} C",
-            font=self.font,
+            (2, 0),
+            f"Enviro: {temperature:.1f} C",
+            font=self.small_font,
+            fill=(0, 0, 0)
+        )
+
+        pi_text = "--" if cpu_temperature is None else f"{cpu_temperature:.1f} C"
+        self.draw.text(
+            (2, 15),
+            f"Pi CPU: {pi_text}",
+            font=self.small_font,
             fill=(0, 0, 0)
         )
 
