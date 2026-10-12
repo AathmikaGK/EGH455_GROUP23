@@ -57,6 +57,8 @@ class SensorInterface:
 
         return {
             "temperature": self.get_temperature(),
+            # Pi SoC temperature, shown next to the Enviro reading on the LCD (REQ-U-12)
+            "cpu_temperature": round(self.get_cpu_temperature(), 1),
             "humidity": self.get_humidity(),
             "pressure": self.get_pressure(),
             "light": self.get_light(),

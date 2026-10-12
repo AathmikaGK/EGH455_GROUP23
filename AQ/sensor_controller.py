@@ -18,6 +18,7 @@ class SensorController:
         return {
             "timestamp": datetime.now().isoformat(),
             "temperature": data["temperature"],
+            "cpu_temperature": data["cpu_temperature"],
             "humidity": data["humidity"],
             "pressure": data["pressure"],
             "light": data["light"],

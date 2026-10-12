@@ -83,7 +83,7 @@ check "dashboard page" 200 "root" "$BASE/"
 echo
 echo "== air quality readings (AQ)"
 post_json "one reading" 202 '"accepted":1' /api/ingest/reading \
-  "{\"temperature\": 24.3, \"pressure\": 1012.6, \"humidity\": 41.2, \"light\": 356, \"oxidising_ppm\": 0.82, \"reducing_ppm\": 2.1, \"ammonia_ppm\": 0.64, \"captured_at\": $(now)}"
+  "{\"temperature\": 24.3, \"pressure\": 1012.6, \"humidity\": 41.2, \"light\": 356, \"oxidising_ohms\": 21540, \"reducing_ohms\": 312000, \"ammonia_ohms\": 98000, \"captured_at\": $(now)}"
 post_json "batch of two readings" 202 '"accepted":2' /api/ingest/reading \
   '[{"temperature": 24.5, "humidity": 41.0}, {"temperature": 24.6, "humidity": 40.8}]'
 post_json "reading out of range is refused" 400 "out of range" /api/ingest/reading \
@@ -207,10 +207,10 @@ if [ "$MODE" = "live" ] || [ "$MODE" = "stream" ]; then
     # every changing number for this tick, in one awk call
     read -r temp hum pres light ox red nh3 gauge ax az ux uz <<< "$(awk -v i="$i" 'BEGIN {
       t = i * 0.5
-      printf "%.2f %.1f %.1f %.0f %.2f %.2f %.2f %.2f %.3f %.3f %.3f %.3f",
+      printf "%.2f %.1f %.1f %.0f %.0f %.0f %.0f %.2f %.3f %.3f %.3f %.3f",
         24 + 1.5 * sin(t / 15), 42 + 4 * sin(t / 20), 1012 + 0.8 * sin(t / 30),
-        360 + 40 * sin(t / 10), 0.8 + 0.15 * sin(t / 8), 2.1 + 0.3 * sin(t / 12),
-        0.6 + 0.1 * sin(t / 9), 2.8 - 0.05 * (i % 40),
+        360 + 40 * sin(t / 10), 21500 + 3000 * sin(t / 8), 312000 + 40000 * sin(t / 12),
+        98000 + 12000 * sin(t / 9), 2.8 - 0.05 * (i % 40),
         -0.3 + (i * 6 % 320) / 640, 1.2 - 0.2 * sin(t / 6), 0.3 - (i * 6 % 320) / 640, 1.2 - 0.2 * sin(t / 6)
     }')"
 
@@ -238,7 +238,7 @@ if [ "$MODE" = "live" ] || [ "$MODE" = "stream" ]; then
 
     # air quality every 2 s
     if [ $((i % 4)) -eq 0 ]; then
-      send_json /api/ingest/reading "{\"temperature\": $temp, \"pressure\": $pres, \"humidity\": $hum, \"light\": $light, \"oxidising_ppm\": $ox, \"reducing_ppm\": $red, \"ammonia_ppm\": $nh3, \"captured_at\": $(now)}"
+      send_json /api/ingest/reading "{\"temperature\": $temp, \"pressure\": $pres, \"humidity\": $hum, \"light\": $light, \"oxidising_ohms\": $ox, \"reducing_ohms\": $red, \"ammonia_ohms\": $nh3, \"captured_at\": $(now)}"
     fi
 
     # the drill follows the gauge: starts once it drops below 2 bar, done 6 s later

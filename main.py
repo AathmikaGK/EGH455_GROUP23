@@ -27,10 +27,12 @@ def send_reading(reading):
         "oxidising_ohms": reading["oxidising"],
         "reducing_ohms": reading["reducing"],
         "ammonia_ohms": reading["nh3"],
+        # lets the web viz show how long the reading took to arrive
+        "captured_at": time.time(),
     }
     request = Request(
         INGEST_URL,
-        data=json.dumps(reading).encode("utf-8"),
+        data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -44,6 +46,9 @@ def send_reading(reading):
         print("[webviz] rejected reading: %s" % detail)
     except URLError as error:
         print("[webviz] could not send reading: %s" % error.reason)
+    except OSError as error:
+        # a read timeout is not wrapped in URLError, it must not stop the sensor loop
+        print("[webviz] could not send reading: %s" % error)
 
 
 def main():
@@ -59,6 +64,7 @@ def main():
     # 1 = Temperature
     # 2 = Image Feed (not implemented)
 
+    # also follows the screen picked on the web interface (see DisplayController._poll_web)
     display_controller = DisplayController(0)
     last_ingest = 0.0
 

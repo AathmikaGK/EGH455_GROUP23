@@ -26,14 +26,32 @@ Chart.defaults.font.family = FONT;
 
 // the sections of the navigation menu (HLO-M-3 item 1), the id is the #hash
 var PAGES = [
-  { id: "dashboard", name: "Dashboard" },
-  { id: "video", name: "Live video feed" },
-  { id: "targets", name: "Identified targets" },
-  { id: "air", name: "Air quality charts" },
-  { id: "logged", name: "Logged data" },
-  { id: "images", name: "Image history" },
-  { id: "logs", name: "System log" }
+  { id: "dashboard", name: "Dashboard", short: "Home" },
+  { id: "video", name: "Live video feed", short: "Video" },
+  { id: "targets", name: "Identified targets", short: "Targets" },
+  { id: "air", name: "Air quality charts", short: "Air" },
+  { id: "logged", name: "Logged data", short: "Data" },
+  { id: "images", name: "Image history", short: "Images" },
+  { id: "logs", name: "System log", short: "Log" }
 ];
+
+// line icons for the phone's bottom menu, 24 x 24 stroke paths
+var PAGE_ICONS = {
+  dashboard: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  video: "M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5",
+  targets: "M12 3v4M12 17v4M3 12h4M17 12h4M12 6a6 6 0 1 0 0 12a6 6 0 1 0 0-12",
+  air: "M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7",
+  logged: "M4 5h16v14H4zM4 10h16M4 15h16M10 5v14",
+  images: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 8.5h.01",
+  logs: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"
+};
+
+function PageIcon(props) {
+  return h("svg", {
+    viewBox: "0 0 24 24", width: 22, height: 22, fill: "none", stroke: "currentColor",
+    strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+  }, h("path", { d: PAGE_ICONS[props.id] }));
+}
 
 var LCD_NAMES = { ip: "IP address", detection: "Live detection", temperature: "Temperature" };
 
@@ -249,20 +267,33 @@ function SoundControls(props) {
     return h("span", { className: "hud-note" }, "No speech in this browser");
   }
   if (!props.sound.unlocked) {
-    // any click on the page unlocks speech, this button is just the obvious place
-    return h("button", { className: "btn small attention" }, "Click to allow voice");
+    // any click on the page unlocks speech, this button is just the obvious place.
+    // it unlocks on its own click: unlocked on the press, the same click would
+    // land on the mute button that replaces it and turn voice straight off
+    return h("button", { className: "btn small attention voice-allow", onClick: props.unlock },
+      "Click to allow voice");
   }
   return h("button", { className: "btn small", onClick: props.toggleMute },
     props.sound.muted ? "Voice off (unmute)" : "Voice on (mute)");
 }
 
+// a phone either way up: the mobile.css phone width, or a phone on its side.
+// the header says it is the smartphone ground control station there
+var HANDHELD = window.matchMedia
+  ? window.matchMedia("(max-width: 759px), (orientation: landscape) and (max-height: 500px)")
+  : { matches: false };
+
 function Header(props) {
   var stream = streamState(props);
+  // one app, two presentations: the header says which one this is.
+  // it redraws every second, so a turned phone updates this too
+  var mobile = HANDHELD.matches;
 
   return h("div", { className: "topbar" },
     h("div", { className: "brand" },
-      h("span", { className: "name" }, "UAV PAYLOAD"),
-      h("span", { className: "sub" }, "Web Interface")),
+      h("span", { className: "name" }, "UAV PAYLOAD",
+        h("span", { className: "mode-tag" }, mobile ? "Mobile" : "Web")),
+      h("span", { className: "sub" }, mobile ? "Mobile Interface · GCS" : "Web Interface")),
     h("div", { className: "spacer" }),
     h("div", { className: "hud" },
       h("div", { className: "hud-item" },
@@ -282,14 +313,69 @@ function Header(props) {
       }),
       h(HudItem, {
         label: "Voice alerts",
-        value: h(SoundControls, { sound: props.sound, toggleMute: props.toggleMute })
+        value: h(SoundControls, { sound: props.sound, toggleMute: props.toggleMute, unlock: props.unlock })
       })));
 }
 
 function NavBar(props) {
-  return h("nav", { className: "nav" }, PAGES.map(function (p) {
-    return h("a", { key: p.id, href: "#" + p.id, className: p.id === props.page ? "on" : "" }, p.name);
+  var nav = useRef(null);
+
+  // on a phone the menu scrolls sideways, so bring the open page's link into
+  // view. only the menu scrolls, never the page, and a desktop menu that
+  // fits is left alone
+  useEffect(function () {
+    var box = nav.current;
+    var on = box && box.querySelector("a.on");
+    if (!on || box.scrollWidth <= box.clientWidth) { return; }
+    box.scrollLeft = on.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
+  }, [props.page]);
+
+  // a phone gets the menu as a bottom bar (mobile.css): icon over a short name
+  var phone = PHONE.matches;
+  return h("nav", { className: "nav", ref: nav }, PAGES.map(function (p) {
+    return h("a", {
+      key: p.id, href: "#" + p.id, className: p.id === props.page ? "on" : "",
+      "aria-label": phone ? p.name : undefined
+    }, phone ? [h(PageIcon, { key: "i", id: p.id }), h("span", { key: "t" }, p.short)] : p.name);
   }));
+}
+
+// the phone's operator status strip under the header: link state, how fresh
+// the data is, the last target found and the gauge against the drill
+// threshold. all from state the page already has, nothing is worked out here
+function OperatorHero(props) {
+  var stream = streamState(props);
+  var quiet = props.quiet;
+  var fresh = quiet === null ? "No data yet"
+    : quiet < 1 ? "Data just now"
+    : quiet < 120 ? "Data " + num(quiet, 0) + " s ago"
+    : "Data " + Math.floor(quiet / 60) + " min ago";
+
+  var t = props.target;
+  var flag = null;
+  if (t && t.type === "aruco") { flag = props.inView(t.aruco_id) ? "In view" : "Lost"; }
+
+  var g = props.gauge;
+  var reading = g && has(g.gauge_value);
+  var below = reading && g.gauge_value < props.limit;
+
+  return h("div", { className: "ops" },
+    h("div", { className: "ops-row" },
+      h("span", { className: "ops-lamp" + (stream.on ? "" : " off") }, h("span", { className: "bulb" }), stream.text),
+      h("span", { className: "ops-meta" }, fresh),
+      h("span", { className: "ops-meta" }, "Log " + props.timer)),
+    h("div", { className: "ops-line" },
+      h("span", { className: "ops-k" }, "Target"),
+      h("span", { className: "ops-v" }, t ? targetText(t) : "No targets detected yet",
+        t ? h("span", { className: "ops-time" }, "  " + clockOf(t.ts)) : null),
+      flag ? h("span", { className: "ops-flag" + (flag === "Lost" ? " lost" : "") }, flag) : null),
+    h("div", { className: "ops-line" + (below ? " alert" : "") },
+      h("span", { className: "ops-k" }, "Gauge"),
+      h("span", { className: "ops-v" }, reading
+        ? num(g.gauge_value, 2) + " " + (g.gauge_units || "bar")
+        : "No reading yet"),
+      reading ? h("span", { className: "ops-flag" + (below ? " lost" : "") },
+        (below ? "Below " : "Above ") + num(props.limit, 1) + " bar") : null));
 }
 
 function AgeBadge(props) {
@@ -323,8 +409,66 @@ function LiveScreen(props) {
   // the mjpeg feed with the boxes already drawn on it by the server
   var frame = props.frame || {};
   var running = frame.live;
+
+  // the mjpeg stream does not say when it dies (server restart, wifi change,
+  // phone asleep), the picture just freezes. a new src replaces the old
+  // connection, the ?t= stops the browser reusing it. only one LiveScreen is
+  // on screen at a time (dashboard or video page), so this is one stream
+  var [src, setSrc] = useState("/video_feed");
+  var retry = useRef(null);
+  var hiddenAt = useRef(null);
+  var wasLive = useRef(props.live);
+  var dropped = useRef(false);
+  var img = useRef(null);
+  var gone = useRef(false);
+
+  function reconnect(delay) {
+    if (gone.current) { return; }
+    // only ever one retry waiting, so failures cannot stack up into a loop
+    clearTimeout(retry.current);
+    retry.current = setTimeout(function () {
+      retry.current = null;
+      setSrc("/video_feed?t=" + Date.now());
+    }, delay);
+  }
+
+  // the push stream dropped and came back, the video went down with it
+  useEffect(function () {
+    if (props.live && dropped.current) {
+      dropped.current = false;
+      reconnect(0);
+    }
+    if (!props.live && wasLive.current) { dropped.current = true; }
+    wasLive.current = props.live;
+  }, [props.live]);
+
+  // a phone that slept for more than a few seconds has usually lost the connection
+  useEffect(function () {
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        hiddenAt.current = Date.now();
+        return;
+      }
+      if (hiddenAt.current && Date.now() - hiddenAt.current > 5000) { reconnect(0); }
+      hiddenAt.current = null;
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    // kept here because react has already cleared the ref when this cleans up
+    var node = img.current;
+    return function () {
+      document.removeEventListener("visibilitychange", onVisibility);
+      gone.current = true;
+      clearTimeout(retry.current);
+      // the browser keeps a multipart image streaming after the img is taken
+      // off the page, so leaving the video page still pulled the video.
+      // dropping the src is what closes the connection
+      if (node) { node.removeAttribute("src"); }
+    };
+  }, []);
+
   return h("div", { className: "screen" },
-    h("img", { src: "/video_feed", alt: "detector feed" }),
+    // a failed connect waits a few seconds before the next try
+    h("img", { ref: img, src: src, alt: "detector feed", onError: function () { reconnect(3000); } }),
     h("div", { className: "cam" }, frame.camera || "CAM 0"),
     h("div", { className: "rec" + (running ? "" : " off") },
       running ? "REC " + props.rec : "NO SIGNAL"));
@@ -339,7 +483,7 @@ function FeedNote(props) {
 function FeedPanel(props) {
   return h("div", { className: "section" },
     h("h2", null, "Live Detector Feed"),
-    h(LiveScreen, { frame: props.frame, rec: props.rec }),
+    h(LiveScreen, { frame: props.frame, rec: props.rec, live: props.live }),
     h(FeedNote, { frame: props.frame, ageLimit: props.ageLimit }));
 }
 
@@ -436,6 +580,25 @@ function ArucoCard(props) {
       h("div", { className: "empty" }, "No markers detected yet"));
   }
 
+  // a phone lists each marker as a card, the same numbers without a wide table
+  if (PHONE.matches) {
+    return h("div", { className: "card wide" }, head,
+      h("div", { className: "marker-cards" }, markers.map(function (m) {
+        var on = props.inView(m.aruco_id);
+        return h("div", { key: m.aruco_id, className: "marker-card" + (on ? " on" : " lost") },
+          h("div", { className: "marker-head" },
+            h("span", { className: "marker-id" }, "Marker " + m.aruco_id),
+            h("span", { className: "marker-state" }, on ? "In view" : "Lost, last seen " + clockOf(m.ts))),
+          has(m.uav_z) ? h("div", { className: "marker-pos" }, h("span", null, "UAV"),
+            "x " + num(m.uav_x, 3) + "  y " + num(m.uav_y, 3) + "  z " + num(m.uav_z, 3) + " m") : null,
+          h("div", { className: "marker-pos" }, h("span", null, "Camera"),
+            "x " + num(m.x, 3) + "  y " + num(m.y, 3) + "  z " + num(m.z, 3) + " m"),
+          h("div", { className: "marker-pos" }, h("span", null, "Range"), num(range(m), 3) + " m"));
+      })),
+      h("div", { className: "subnote" },
+        "Camera = the marker's position seen from the camera. UAV = the UAV's position relative to the marker."));
+  }
+
   var names = ["ID", "Camera x (m)", "Camera y (m)", "Camera z (m)"];
   if (withUav) { names = names.concat(["UAV x (m)", "UAV y (m)", "UAV z (m)"]); }
   names = names.concat(["Range (m)", "Seen"]);
@@ -516,6 +679,21 @@ function hms(ms) {
   return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
 }
 
+// AQ sends the MiCS-6814 gas readings as sensor resistance in ohms (*_ohms).
+// The dashboard shows them in kilo-ohms, so each reading row gets *_kohm
+// copies as it arrives. Lower resistance means more of that gas.
+var GAS_KEYS = ["oxidising", "reducing", "ammonia"];
+
+function withKohm(row) {
+  if (!row) { return row; }
+  var out = Object.assign({}, row);
+  GAS_KEYS.forEach(function (g) {
+    var ohms = row[g + "_ohms"];
+    out[g + "_kohm"] = has(ohms) ? ohms / 1000 : null;
+  });
+  return out;
+}
+
 function points(rows, name) {
   return rows.map(function (row) {
     return { x: msOf(row.ts), y: has(row[name]) ? row[name] : null };
@@ -527,9 +705,16 @@ function axisTitle(text) {
   return { display: !!text, text: text || "", color: BLACK, font: { family: FONT, size: 13, weight: "600" } };
 }
 
+// phones get a lighter time axis: a label every 10 s, never tilted, and no
+// axis titles (the name above each chart already says what and which unit).
+// same breakpoint as mobile.css. no matchMedia means the desktop axis
+var PHONE = window.matchMedia ? window.matchMedia("(max-width: 759px)") : { matches: false };
+var PHONE_STEP = 10000;
+
 function makeScales(props) {
+  var phone = PHONE.matches;
   var axis = {
-    title: axisTitle(props.yTitle),
+    title: axisTitle(phone ? "" : props.yTitle),
     grid: { color: GRID, drawTicks: false },
     border: { color: GRID },
     ticks: { color: BLACK, font: { size: 12 }, maxTicksLimit: 5, padding: 4 }
@@ -541,13 +726,13 @@ function makeScales(props) {
       type: "linear",
       min: now - CHART_SPAN,
       max: now,
-      title: axisTitle("Time (hh:mm:ss)"),
+      title: axisTitle(phone ? "" : "Time (hh:mm:ss)"),
       grid: { color: GRID, drawTicks: false },
       border: { color: GRID },
       ticks: {
         // a label every step, tilted when the chart is too narrow to fit them flat
-        color: BLACK, font: { size: 11 }, minRotation: 0, maxRotation: 50, autoSkip: false,
-        stepSize: CHART_STEP, includeBounds: false,
+        color: BLACK, font: { size: 11 }, minRotation: 0, maxRotation: phone ? 0 : 50, autoSkip: phone,
+        stepSize: phone ? PHONE_STEP : CHART_STEP, includeBounds: false,
         callback: function (value) { return hms(value); }
       }
     },
@@ -558,7 +743,7 @@ function makeScales(props) {
   if (props.twoAxis) {
     scales.y2 = {
       position: "right",
-      title: axisTitle(props.y2Title),
+      title: axisTitle(phone ? "" : props.y2Title),
       grid: { drawOnChartArea: false },
       border: { color: GRID },
       ticks: { color: BLACK, font: { size: 12 }, maxTicksLimit: 5 }
@@ -626,7 +811,20 @@ function LineChart(props) {
       }
     });
 
-    return function () { chart.current.destroy(); };
+    // a phone turned or a window resized across the phone breakpoint
+    function resized() {
+      chart.current.options.scales = makeScales(props);
+      chart.current.update("none");
+    }
+    // safari before 14 only has addListener
+    if (PHONE.addEventListener) { PHONE.addEventListener("change", resized); }
+    else if (PHONE.addListener) { PHONE.addListener(resized); }
+
+    return function () {
+      if (PHONE.removeEventListener) { PHONE.removeEventListener("change", resized); }
+      else if (PHONE.removeListener) { PHONE.removeListener(resized); }
+      chart.current.destroy();
+    };
   }, []);
 
   // runs on every render, and the page renders every second, so the time
@@ -669,12 +867,12 @@ function ReadingTiles(props) {
 
   return h("div", { className: "tiles" },
     h(Tile, { name: "Temperature", value: num(r.temperature, 1), unit: "°C" }),
-    h(Tile, { name: "Pressure", value: num(r.pressure, 0), unit: "hPa" }),
+    h(Tile, { name: "Pressure", value: num(r.pressure, 1), unit: "hPa" }),
     h(Tile, { name: "Humidity", value: num(r.humidity, 0), unit: "%RH" }),
     h(Tile, { name: "Light", value: num(r.light, 0), unit: "lux" }),
-    h(Tile, { name: "Oxidising", value: num(r.oxidising_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "Reducing", value: num(r.reducing_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "Ammonia (NH3)", value: num(r.ammonia_ppm, 1), unit: "ppm" }),
+    h(Tile, { name: "Oxidising", value: num(r.oxidising_kohm, 1), unit: "kΩ" }),
+    h(Tile, { name: "Reducing", value: num(r.reducing_kohm, 1), unit: "kΩ" }),
+    h(Tile, { name: "Ammonia (NH3)", value: num(r.ammonia_kohm, 1), unit: "kΩ" }),
     h(Tile, { name: "Samples", value: grouped(props.samples), unit: "rows", accent: true }));
 }
 
@@ -690,9 +888,9 @@ function AirPanel(props) {
   var rows = props.rows;
 
   var gas = [
-    { name: "Oxidising", unit: "ppm", colour: BLUE, data: points(rows, "oxidising_ppm") },
-    { name: "Reducing", unit: "ppm", colour: SKY, data: points(rows, "reducing_ppm") },
-    { name: "Ammonia", unit: "ppm", colour: BLACK, data: points(rows, "ammonia_ppm") }
+    { name: "Oxidising", unit: "kΩ", places: 1, colour: BLUE, data: points(rows, "oxidising_kohm") },
+    { name: "Reducing", unit: "kΩ", places: 1, colour: SKY, data: points(rows, "reducing_kohm") },
+    { name: "Ammonia", unit: "kΩ", places: 1, colour: BLACK, data: points(rows, "ammonia_kohm") }
   ];
 
   var climate = [
@@ -702,8 +900,8 @@ function AirPanel(props) {
 
   return h("div", { className: "section" },
     h("h2", null, "Air Quality Trends"),
-    h(ChartHead, { name: "Gas concentration (ppm)", series: gas }),
-    h(LineChart, { series: gas, yTitle: "Concentration (ppm)" }),
+    h(ChartHead, { name: "Gas sensor resistance (kΩ), lower means more gas", series: gas }),
+    h(LineChart, { series: gas, yTitle: "Resistance (kΩ)" }),
     h(ChartHead, { name: "Temperature (°C) & Humidity (%RH)", series: climate }),
     h(LineChart, { series: climate, twoAxis: true, yTitle: "Temperature (°C)", y2Title: "Humidity (%RH)" }));
 }
@@ -722,13 +920,13 @@ var CHART_TABS = [
 
 // the bar gauges. lo / hi only scale the bar, the number above it is the reading
 var SENSOR_BARS = [
-  { key: "temperature", name: "Temp.", unit: "°C", lo: 0, hi: 50, places: 1 },
-  { key: "humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
-  { key: "pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 0 },
-  { key: "light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
-  { key: "oxidising_ppm", name: "Oxidising", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "reducing_ppm", name: "Reducing", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "ammonia_ppm", name: "NH3", unit: "ppm", lo: 0, hi: 5, places: 2 }
+  { key: "temperature", long: "Temperature", name: "Temp.", unit: "°C", lo: 0, hi: 50, places: 1 },
+  { key: "humidity", long: "Humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
+  { key: "pressure", long: "Pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 1 },
+  { key: "light", long: "Light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
+  { key: "oxidising_kohm", long: "Oxidising", name: "Oxidising", unit: "kΩ", lo: 0, hi: 100, places: 1 },
+  { key: "reducing_kohm", long: "Reducing", name: "Reducing", unit: "kΩ", lo: 0, hi: 1000, places: 0 },
+  { key: "ammonia_kohm", long: "Ammonia (NH3)", name: "NH3", unit: "kΩ", lo: 0, hi: 500, places: 0 }
 ];
 
 var TARGET_ROWS = [
@@ -739,9 +937,9 @@ var TARGET_ROWS = [
 
 // the readings averaged while each target was in view
 var AVG_COLS = [
-  { key: "oxidising_ppm", name: "Oxidising (ppm)", places: 2 },
-  { key: "reducing_ppm", name: "Reducing (ppm)", places: 2 },
-  { key: "ammonia_ppm", name: "NH3 (ppm)", places: 2 },
+  { key: "oxidising_kohm", name: "Oxidising (kΩ)", places: 1 },
+  { key: "reducing_kohm", name: "Reducing (kΩ)", places: 1 },
+  { key: "ammonia_kohm", name: "NH3 (kΩ)", places: 1 },
   { key: "temperature", name: "Temperature (°C)", places: 1 },
   { key: "humidity", name: "Humidity (%RH)", places: 0 }
 ];
@@ -780,7 +978,7 @@ function CurrentImage(props) {
       "Saved detection image  ·  " + typesText(sel.types) + "  ",
       h("button", { className: "btn small", onClick: function () { props.pick(null); } }, "Back to live"));
   } else {
-    screen = h(LiveScreen, { frame: props.frame, rec: props.rec });
+    screen = h(LiveScreen, { frame: props.frame, rec: props.rec, live: props.live });
     notes = h(FeedNote, { frame: props.frame, ageLimit: props.ageLimit });
   }
 
@@ -793,7 +991,7 @@ function CurrentImage(props) {
 }
 
 function ChartTabs(props) {
-  var [tab, setTab] = useState("position");
+  var [tab, setTab] = useState(props.start || "position");
   var rows = props.rows;
 
   var chart;
@@ -801,10 +999,10 @@ function ChartTabs(props) {
     chart = h(PosePanel, { rows: props.poseRows, id: props.poseId, tall: true });
   } else {
     var sets = {
-      gas: { name: "Gas concentration (ppm)", axis: "Concentration (ppm)", series: [
-        { name: "Oxidising", unit: "ppm", colour: BLUE, data: points(rows, "oxidising_ppm") },
-        { name: "Reducing", unit: "ppm", colour: SKY, data: points(rows, "reducing_ppm") },
-        { name: "Ammonia", unit: "ppm", colour: BLACK, data: points(rows, "ammonia_ppm") }] },
+      gas: { name: "Gas sensor resistance (kΩ), lower means more gas", axis: "Resistance (kΩ)", series: [
+        { name: "Oxidising", unit: "kΩ", places: 1, colour: BLUE, data: points(rows, "oxidising_kohm") },
+        { name: "Reducing", unit: "kΩ", places: 1, colour: SKY, data: points(rows, "reducing_kohm") },
+        { name: "Ammonia", unit: "kΩ", places: 1, colour: BLACK, data: points(rows, "ammonia_kohm") }] },
       temperature: { name: "Temperature (°C)", axis: "Temperature (°C)", series: [
         { name: "Temperature", unit: "°C", colour: BLACK, data: points(rows, "temperature") }] },
       humidity: { name: "Humidity (%RH)", axis: "Humidity (%RH)", series: [
@@ -821,7 +1019,7 @@ function ChartTabs(props) {
   }
 
   return h("div", { className: "panel charts" },
-    h("div", { className: "tabs" }, CHART_TABS.map(function (t) {
+    h("div", { className: "tabs" }, (props.tabs || CHART_TABS).map(function (t) {
       return h("button", {
         key: t.id, className: "tab" + (t.id === tab ? " on" : ""),
         onClick: function () { setTab(t.id); }
@@ -889,10 +1087,25 @@ function SensorBars(props) {
     var v = r[b.key];
     var pct = has(v) ? Math.max(0, Math.min(100, (v - b.lo) / (b.hi - b.lo) * 100)) : 0;
     return h("div", { key: b.key, className: "bar" },
-      h("div", { className: "bar-value" + (has(v) ? "" : " none") }, num(v, b.places)),
+      h("div", { className: "bar-value" + (has(v) ? "" : " none") }, num(v, b.places),
+        h("span", { className: "bar-unit" }, b.unit)),
       h("div", { className: "bar-tube" }, h("div", { className: "bar-fill", style: { height: pct + "%" } })),
       h("div", { className: "bar-name" }, b.name, h("br"), "(" + b.unit + ")"));
   }));
+}
+
+// the same readings as the bars, as cards on a phone: name, value and unit
+function SensorCards(props) {
+  var r = props.reading || {};
+  return h("div", { className: "sensor-cards" },
+    h("div", { className: "panel-title" }, "Live sensors"),
+    h("div", { className: "sensor-grid" }, SENSOR_BARS.map(function (b) {
+      var v = r[b.key];
+      return h("div", { key: b.key, className: "sensor-card" },
+        h("div", { className: "k" }, b.long),
+        h("div", { className: "v" + (has(v) ? "" : " none") }, num(v, b.places),
+          h("span", { className: "unit" }, b.unit)));
+    })));
 }
 
 function DrillLine(props) {
@@ -911,7 +1124,7 @@ function Dashboard(props) {
   return h("div", { className: "mock" },
     h(ImageStream, { captures: props.captures, selected: props.selected, pick: props.pick }),
     h(CurrentImage, {
-      frame: props.frame, rec: props.rec, ageLimit: props.ageLimit,
+      frame: props.frame, rec: props.rec, live: props.live, ageLimit: props.ageLimit,
       selected: props.selected, pick: props.pick, target: props.target, limit: props.limit
     }),
     h(ChartTabs, { rows: props.rows, poseRows: props.poseRows, poseId: props.poseId }),
@@ -921,7 +1134,7 @@ function Dashboard(props) {
         h("div", { className: "subnote" }, "Averages cover this browser session, using the readings taken while each target was in view (seen in the last " + IN_VIEW_MS / 1000 + " s)."),
         h(DrillLine, { drill: props.drill, limit: props.limit })),
       h("div", { className: "bottom-right" },
-        h(SensorBars, { reading: props.reading }),
+        PHONE.matches ? h(SensorCards, { reading: props.reading }) : h(SensorBars, { reading: props.reading }),
         h("div", { className: "bars-note" },
           h(AgeBadge, { lag: props.reading ? props.reading.capture_lag : null, limit: props.ageLimit })))));
 }
@@ -998,9 +1211,9 @@ var COLUMNS = {
     { name: "Pressure (hPa)", get: function (r) { return cell(r.pressure, 1); } },
     { name: "Humidity (%RH)", get: function (r) { return cell(r.humidity, 1); } },
     { name: "Light (lux)", get: function (r) { return cell(r.light, 0); } },
-    { name: "Oxidising (ppm)", get: function (r) { return cell(r.oxidising_ppm, 2); } },
-    { name: "Reducing (ppm)", get: function (r) { return cell(r.reducing_ppm, 2); } },
-    { name: "Ammonia (ppm)", get: function (r) { return cell(r.ammonia_ppm, 2); } },
+    { name: "Oxidising (kΩ)", get: function (r) { return cell(r.oxidising_kohm, 2); } },
+    { name: "Reducing (kΩ)", get: function (r) { return cell(r.reducing_kohm, 2); } },
+    { name: "Ammonia (kΩ)", get: function (r) { return cell(r.ammonia_kohm, 2); } },
     { name: "Capture lag (s)", get: function (r) { return cell(r.capture_lag, 2); } }
   ],
   detections: [
@@ -1107,7 +1320,7 @@ function LoggedData(props) {
           setStatus({ text: body.error || "The request failed", error: true });
           return;
         }
-        setRows(body.rows);
+        setRows(body.rows.map(withKohm));
         var text = body.count + " rows from " + dateTimeOf(body.from) + " to " + dateTimeOf(body.to);
         if (body.count >= 5000) { text += " (limit reached, pick a shorter range)"; }
         setStatus({ text: text, error: false });
@@ -1257,6 +1470,16 @@ function ImageHistory(props) {
     if (index > frames.length - 1 && frames.length > 0) { setIndex(frames.length - 1); }
   }, [index, playing, frames.length]);
 
+  // the thumbnail strip scrolls sideways, keep the current frame's thumbnail
+  // in view (it starts on the newest, at the far right). only the strip scrolls
+  var strip = useRef(null);
+  useEffect(function () {
+    var box = strip.current;
+    var on = box && box.querySelector("a.on");
+    if (!on || box.scrollWidth <= box.clientWidth) { return; }
+    box.scrollLeft = on.offsetLeft - box.offsetLeft - (box.clientWidth - on.offsetWidth) / 2;
+  }, [index, frames.length]);
+
   function submit(ev) {
     ev.preventDefault();
     load(from, to, filter);
@@ -1342,7 +1565,7 @@ function ImageHistory(props) {
           h("select", { value: speed, onChange: function (ev) { setSpeed(Number(ev.target.value)); } },
             [1, 2, 5].map(function (s) { return h("option", { key: s, value: s }, s + "x"); })),
           h("a", { className: "btn", href: cur.url, download: "frame_" + cur.id + ".jpg" }, "Download")),
-        h("div", { className: "thumbs" }, thumbs)),
+        h("div", { className: "thumbs", ref: strip }, thumbs)),
       h("div", { className: "history-side" },
         h("div", { className: "k" }, "Frame " + (index + 1) + " of " + frames.length),
         h("div", { className: "when" }, dateTimeOf(cur.ts)),
@@ -1451,7 +1674,7 @@ function App() {
       .then(function (res) { return res.json(); })
       .then(function (body) {
         if (!body.ok || body.rows.length === 0) { return; }
-        setRows(function (old) { return mergeHistory(old, body.rows); });
+        setRows(function (old) { return mergeHistory(old, body.rows.map(withKohm)); });
       })
       .catch(function () {
         // nothing logged yet, the stream will fill the charts in instead
@@ -1487,159 +1710,188 @@ function App() {
 
   // the live push connection, everything on the page comes through here
   useEffect(function () {
-    var es = new EventSource("/stream");
+    // one source at a time. the browser retries by itself while the source
+    // is CONNECTING, but an error response (a 502 from nginx while gunicorn
+    // restarts) closes it for good, so then a new one is made after 3 s
+    var current = null;
+    var retry = null;
+    var disposed = false;
 
-    es.addEventListener("snapshot", function (ev) {
-      // sent the moment the connection opens so the panels paint straight away
-      var snap = JSON.parse(ev.data);
-      setLive(true);
-      if (snap.server_time) { clockSkew = msOf(snap.server_time) - Date.now(); }
-      if (snap.own_components) { ownLogs.current = snap.own_components; }
-      // the server says how long it has been quiet, an old database is not live
-      if (snap.quiet !== null && snap.quiet !== undefined) {
-        lastAt.current = Date.now() - snap.quiet * 1000;
-      }
-      if (snap.frame && snap.frame.live && !recFrom.current) {
-        recFrom.current = Date.now();
-      }
-      setData(function (old) {
-        var markers = {};
-        (snap.aruco || []).forEach(function (m) { markers[m.aruco_id] = m; });
-        var at = snap.quiet !== null && snap.quiet !== undefined
-          ? Date.now() - snap.quiet * 1000 : Date.now();
-        (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
-        return {
-          info: snap,
-          reading: snap.reading,
-          valve: snap.valve,
-          gauge: snap.gauge,
-          markers: markers,
-          inView: snap.aruco_in_view || [],
-          drill: snap.drill,
-          logs: snap.logs || [],
-          frame: snap.frame || {},
-          samples: snap.samples,
-          updated: snap.updated,
-          lcd: snap.lcd,
-          lastTarget: newestTarget(snap)
-        };
-      });
-      if (snap.reading) { addReading(setRows, snap.reading); }
-    });
+    function connect() {
+      if (disposed) { return; }
+      var es = new EventSource("/stream");
+      current = es;
 
-    es.addEventListener("reading", function (ev) {
-      var row = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      setData(function (old) {
-        return Object.assign({}, old, {
-          reading: row,
-          samples: has(old.samples) ? old.samples + 1 : 1,
-          updated: row.ts
-        });
-      });
-      addReading(setRows, row);
-
-      // this reading counts towards the average of every target in view right now
-      var now = Date.now();
-      setStats(function (old) {
-        var next = Object.assign({}, old);
-        TARGET_ROWS.forEach(function (r) {
-          var at = seenAt.current[r.type];
-          if (!at || now - at > IN_VIEW_MS) { return; }
-          var s = old[r.type] || { sum: {}, count: {} };
-          var sum = Object.assign({}, s.sum);
-          var count = Object.assign({}, s.count);
-          AVG_COLS.forEach(function (c) {
-            if (!has(row[c.key])) { return; }
-            sum[c.key] = (sum[c.key] || 0) + row[c.key];
-            count[c.key] = (count[c.key] || 0) + 1;
-          });
-          next[r.type] = { sum: sum, count: count };
-        });
-        return next;
-      });
-    });
-
-    es.addEventListener("detection", function (ev) {
-      var row = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      seenAt.current[row.type] = Date.now();
-      announce(row);
-      setData(function (old) {
-        var next = Object.assign({}, old, { updated: row.ts, lastTarget: row });
-        if (row.type === "valve") {
-          next.valve = row;
-        } else if (row.type === "gauge") {
-          next.gauge = row;
-        } else {
-          next.markers = Object.assign({}, old.markers);
-          next.markers[row.aruco_id] = row;
-          if (old.inView.indexOf(row.aruco_id) < 0) {
-            next.inView = old.inView.concat([row.aruco_id]);
-          }
+      es.addEventListener("snapshot", function (ev) {
+        // sent the moment the connection opens so the panels paint straight away
+        var snap = JSON.parse(ev.data);
+        setLive(true);
+        if (snap.server_time) { clockSkew = msOf(snap.server_time) - Date.now(); }
+        if (snap.own_components) { ownLogs.current = snap.own_components; }
+        // the server says how long it has been quiet, an old database is not live
+        if (snap.quiet !== null && snap.quiet !== undefined) {
+          lastAt.current = Date.now() - snap.quiet * 1000;
         }
-        return next;
+        if (snap.frame && snap.frame.live && !recFrom.current) {
+          recFrom.current = Date.now();
+        }
+        setData(function (old) {
+          var markers = {};
+          (snap.aruco || []).forEach(function (m) { markers[m.aruco_id] = m; });
+          var at = snap.quiet !== null && snap.quiet !== undefined
+            ? Date.now() - snap.quiet * 1000 : Date.now();
+          (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
+          return {
+            info: snap,
+            reading: withKohm(snap.reading),
+            valve: snap.valve,
+            gauge: snap.gauge,
+            markers: markers,
+            inView: snap.aruco_in_view || [],
+            drill: snap.drill,
+            logs: snap.logs || [],
+            frame: snap.frame || {},
+            samples: snap.samples,
+            updated: snap.updated,
+            lcd: snap.lcd,
+            lastTarget: newestTarget(snap)
+          };
+        });
+        if (snap.reading) { addReading(setRows, withKohm(snap.reading)); }
       });
-      if (row.type === "aruco") {
-        markerAt.current[row.aruco_id] = Date.now();
-        addPose(setPoses, row);
-      }
-    });
 
-    es.addEventListener("aruco_view", function (ev) {
-      // comes after every taq frame, the ids in it are the only ones in view now
-      var view = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      setData(function (old) {
-        return Object.assign({}, old, { inView: view.ids, updated: view.ts });
+      es.addEventListener("reading", function (ev) {
+        var row = withKohm(JSON.parse(ev.data));
+        lastAt.current = Date.now();
+        setData(function (old) {
+          return Object.assign({}, old, {
+            reading: row,
+            samples: has(old.samples) ? old.samples + 1 : 1,
+            updated: row.ts
+          });
+        });
+        addReading(setRows, row);
+
+        // this reading counts towards the average of every target in view right now
+        var now = Date.now();
+        setStats(function (old) {
+          var next = Object.assign({}, old);
+          TARGET_ROWS.forEach(function (r) {
+            var at = seenAt.current[r.type];
+            if (!at || now - at > IN_VIEW_MS) { return; }
+            var s = old[r.type] || { sum: {}, count: {} };
+            var sum = Object.assign({}, s.sum);
+            var count = Object.assign({}, s.count);
+            AVG_COLS.forEach(function (c) {
+              if (!has(row[c.key])) { return; }
+              sum[c.key] = (sum[c.key] || 0) + row[c.key];
+              count[c.key] = (count[c.key] || 0) + 1;
+            });
+            next[r.type] = { sum: sum, count: count };
+          });
+          return next;
+        });
       });
-    });
 
-    es.addEventListener("log", function (ev) {
-      // drill events arrive here too, they are log rows with the drill columns
-      var row = JSON.parse(ev.data);
-      // the web viz heartbeat is not payload data, the system log page shows it
-      if (ownLogs.current.indexOf(row.component) >= 0) { return; }
-      lastAt.current = Date.now();
-      setData(function (old) {
-        var logs = old.logs.concat([row]).slice(-25);
-        var next = Object.assign({}, old, { logs: logs, updated: row.ts });
-        if (row.drill_state) { next.drill = row; }
-        return next;
+      es.addEventListener("detection", function (ev) {
+        var row = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        seenAt.current[row.type] = Date.now();
+        announce(row);
+        setData(function (old) {
+          var next = Object.assign({}, old, { updated: row.ts, lastTarget: row });
+          if (row.type === "valve") {
+            next.valve = row;
+          } else if (row.type === "gauge") {
+            next.gauge = row;
+          } else {
+            next.markers = Object.assign({}, old.markers);
+            next.markers[row.aruco_id] = row;
+            if (old.inView.indexOf(row.aruco_id) < 0) {
+              next.inView = old.inView.concat([row.aruco_id]);
+            }
+          }
+          return next;
+        });
+        if (row.type === "aruco") {
+          markerAt.current[row.aruco_id] = Date.now();
+          addPose(setPoses, row);
+        }
       });
-    });
 
-    es.addEventListener("frame", function (ev) {
-      // camera meta only, the picture itself comes down /video_feed
-      var meta = JSON.parse(ev.data);
-      lastAt.current = Date.now();
-      if (!recFrom.current) { recFrom.current = Date.now(); }
-      setData(function (old) {
-        return Object.assign({}, old, { frame: meta });
+      es.addEventListener("aruco_view", function (ev) {
+        // comes after every taq frame, the ids in it are the only ones in view now
+        var view = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        setData(function (old) {
+          return Object.assign({}, old, { inView: view.ids, updated: view.ts });
+        });
       });
-    });
 
-    es.addEventListener("capture", function (ev) {
-      // a frame with targets was saved, newest goes to the front of the strip
-      var item = JSON.parse(ev.data);
-      setCaptures(function (old) {
-        return [item].concat(old.filter(function (c) { return c.id !== item.id; })).slice(0, STRIP_KEEP);
+      es.addEventListener("log", function (ev) {
+        // drill events arrive here too, they are log rows with the drill columns
+        var row = JSON.parse(ev.data);
+        // the web viz heartbeat is not payload data, the system log page shows it
+        if (ownLogs.current.indexOf(row.component) >= 0) { return; }
+        lastAt.current = Date.now();
+        setData(function (old) {
+          var logs = old.logs.concat([row]).slice(-25);
+          var next = Object.assign({}, old, { logs: logs, updated: row.ts });
+          if (row.drill_state) { next.drill = row; }
+          return next;
+        });
       });
-    });
 
-    es.addEventListener("lcd", function (ev) {
-      // someone picked a new lcd display, maybe on another computer
-      var lcd = JSON.parse(ev.data);
-      setData(function (old) { return Object.assign({}, old, { lcd: lcd }); });
-    });
+      es.addEventListener("frame", function (ev) {
+        // camera meta only, the picture itself comes down /video_feed
+        var meta = JSON.parse(ev.data);
+        lastAt.current = Date.now();
+        if (!recFrom.current) { recFrom.current = Date.now(); }
+        setData(function (old) {
+          return Object.assign({}, old, { frame: meta });
+        });
+      });
 
-    es.onopen = function () { setLive(true); };
-    es.onerror = function () {
-      // the browser reconnects by itself, the header just goes grey meanwhile
-      setLive(false);
+      es.addEventListener("capture", function (ev) {
+        // a frame with targets was saved, newest goes to the front of the strip
+        var item = JSON.parse(ev.data);
+        setCaptures(function (old) {
+          return [item].concat(old.filter(function (c) { return c.id !== item.id; })).slice(0, STRIP_KEEP);
+        });
+      });
+
+      es.addEventListener("lcd", function (ev) {
+        // someone picked a new lcd display, maybe on another computer
+        var lcd = JSON.parse(ev.data);
+        setData(function (old) { return Object.assign({}, old, { lcd: lcd }); });
+      });
+
+      es.onopen = function () { setLive(true); };
+      es.onerror = function () {
+        // the browser reconnects by itself, the header just goes grey meanwhile
+        setLive(false);
+        // except after an error response, then it gives up, so start again
+        if (es === current && es.readyState === EventSource.CLOSED) { reconnectLater(); }
+      };
+    }
+
+    function reconnectLater() {
+      // one timer at most, and nothing once the page has gone
+      if (disposed || retry) { return; }
+      retry = setTimeout(function () {
+        retry = null;
+        current.close();
+        connect();
+      }, 3000);
+    }
+
+    connect();
+
+    return function () {
+      disposed = true;
+      clearTimeout(retry);
+      current.close();
     };
-
-    return function () { es.close(); };
   }, []);
 
   function pickLcd(mode) {
@@ -1661,14 +1913,21 @@ function App() {
       .catch(function () { setLcdBusy(false); });
   }
 
+  function unlockSpeech() {
+    if (speech.unlocked || !canSpeak()) { return; }
+    speech.unlocked = true;
+    // speaking inside the click is what tells the browser sound is allowed
+    say("Voice alerts on");
+    setSound({ unlocked: true, muted: speech.muted });
+  }
+
   // the first click or key press anywhere on the page unlocks speech
   useEffect(function () {
-    function unlock() {
-      if (speech.unlocked || !canSpeak()) { return; }
-      speech.unlocked = true;
-      // speaking inside the click is what tells the browser sound is allowed
-      say("Voice alerts on");
-      setSound({ unlocked: true, muted: speech.muted });
+    function unlock(ev) {
+      // the voice button does it on its own click, see SoundControls
+      if (ev && ev.target && ev.target.closest && ev.target.closest(".voice-allow")) { return; }
+      unlockSpeech();
+      if (!speech.unlocked) { return; }
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     }
@@ -1710,14 +1969,16 @@ function App() {
   var gaugeMax = has(data.info.gauge_max) ? data.info.gauge_max : 10.0;
   var ageLimit = has(data.info.age_limit) ? data.info.age_limit : 4.0;
 
-  var feed = h(FeedPanel, { frame: data.frame, rec: clock.rec, ageLimit: ageLimit });
+  var feed = h(FeedPanel, { frame: data.frame, rec: clock.rec, live: live, ageLimit: ageLimit });
   var found = h(TargetFound, { target: data.lastTarget, ageLimit: ageLimit, limit: limit });
   var strip = h(CaptureStrip, { captures: captures });
   var targets = h(TargetPanel, {
     valve: data.valve, gauge: data.gauge, markers: markerList, limit: limit, gaugeMax: gaugeMax,
     inView: inView, poseRows: poses, poseId: poseId
   });
-  var air = h(AirPanel, { rows: rows });
+  var air = PHONE.matches
+    ? h(ChartTabs, { rows: rows, poseRows: poses, poseId: poseId, start: "gas", tabs: CHART_TABS.slice(1) })
+    : h(AirPanel, { rows: rows });
   var readings = h(ReadingsSection, { reading: data.reading, samples: data.samples, ageLimit: ageLimit });
   var drill = h(DrillPanel, { drill: data.drill, logs: data.logs, limit: limit });
 
@@ -1738,7 +1999,7 @@ function App() {
   } else if (page === "logs") {
     body = h("div", { className: "page wide" }, h(LoggedData, {
       key: "logs", fixedType: "system_log", title: "System Operation Log",
-      intro: "Log messages from every subsystem (WVS, AQ, TAIP, EDM), including the WVS heartbeat every 10 s. Run the system for at least 10 minutes before the acceptance test."
+      intro: "Log messages from every subsystem (WVS, AQ, TAIP, EDM), including the WVS heartbeat every 10 s."
     }));
   } else {
     // the newest aruco marker is the one the targets table shows
@@ -1748,7 +2009,7 @@ function App() {
     });
     body = h(Dashboard, {
       captures: captures, selected: selected, pick: setSelected,
-      frame: data.frame, rec: clock.rec, ageLimit: ageLimit, target: data.lastTarget,
+      frame: data.frame, rec: clock.rec, live: live, ageLimit: ageLimit, target: data.lastTarget,
       rows: rows, poseRows: poses, poseId: poseId,
       latest: { valve: data.valve, gauge: data.gauge, aruco: lastAruco },
       stats: stats, limit: limit, drill: data.drill, reading: data.reading
@@ -1759,9 +2020,13 @@ function App() {
     h(Header, {
       info: data.info, live: live, quiet: clock.quiet, timer: clock.timer,
       lcd: data.lcd, lcdBusy: lcdBusy, pickLcd: pickLcd,
-      sound: sound, toggleMute: toggleMute
+      sound: sound, toggleMute: toggleMute, unlock: unlockSpeech
     }),
     h(NavBar, { page: page }),
+    HANDHELD.matches ? h(OperatorHero, {
+      info: data.info, live: live, quiet: clock.quiet, timer: clock.timer,
+      target: data.lastTarget, gauge: data.gauge, limit: limit, inView: inView
+    }) : null,
     body);
 }
 
