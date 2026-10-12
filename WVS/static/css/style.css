@@ -1129,6 +1129,11 @@ tr.error td { color: var(--red); }
 .drill-line .pill { padding: 2px 12px; }
 .drill-line .h2-link.inline { margin-left: auto; }
 
+/* activate drill button and the result of the last press */
+.drill-activate { display: inline-flex; align-items: center; gap: 10px; }
+.drill-result { font-size: 13px; font-weight: 600; color: var(--green); }
+.drill-result.error { color: var(--red); }
+
 /* the last target found, as a labelled box */
 
 .found-box {

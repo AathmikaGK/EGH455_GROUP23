@@ -1108,6 +1108,33 @@ function SensorCards(props) {
     })));
 }
 
+function ActivateDrill() {
+  // asks the web viz to call activate_drill() in drill_controller.py (POST /api/drill/activate)
+  var [busy, setBusy] = useState(false);
+  var [result, setResult] = useState(null);
+
+  function press() {
+    setBusy(true);
+    setResult(null);
+    fetch("/api/drill/activate", { method: "POST" })
+      .then(function (res) { return res.json(); })
+      .then(function (body) {
+        setBusy(false);
+        setResult(body.ok ? { text: "Drill activated " + hms(Date.now()), error: false }
+          : { text: body.error || "Activate drill failed", error: true });
+      })
+      .catch(function () {
+        setBusy(false);
+        setResult({ text: "Could not reach the web viz", error: true });
+      });
+  }
+
+  return h("span", { className: "drill-activate" },
+    h("button", { className: "btn primary small", disabled: busy, onClick: press },
+      busy ? "Activating..." : "Activate drill"),
+    result ? h("span", { className: "drill-result" + (result.error ? " error" : "") }, result.text) : null);
+}
+
 function DrillLine(props) {
   var drill = props.drill;
   var state = drill && drill.drill_state ? drill.drill_state : null;
@@ -1117,6 +1144,7 @@ function DrillLine(props) {
     h("span", null, "Hole depth ", h("b", null, drill && has(drill.hole_depth) ? num(drill.hole_depth * 1000, 1) + " mm" : "--")),
     h("span", null, "Fires below ", h("b", null, num(drill && has(drill.trigger_pressure) ? drill.trigger_pressure : props.limit, 1) + " bar")),
     h("span", null, "Last event ", h("b", null, drill ? clockOf(drill.ts) : "--")),
+    h(ActivateDrill),
     h("a", { className: "h2-link inline", href: "#logs" }, "System log"));
 }
 
