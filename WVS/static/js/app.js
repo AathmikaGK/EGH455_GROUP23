@@ -679,6 +679,21 @@ function hms(ms) {
   return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
 }
 
+// AQ sends the MiCS-6814 gas readings as sensor resistance in ohms (*_ohms).
+// The dashboard shows them in kilo-ohms, so each reading row gets *_kohm
+// copies as it arrives. Lower resistance means more of that gas.
+var GAS_KEYS = ["oxidising", "reducing", "ammonia"];
+
+function withKohm(row) {
+  if (!row) { return row; }
+  var out = Object.assign({}, row);
+  GAS_KEYS.forEach(function (g) {
+    var ohms = row[g + "_ohms"];
+    out[g + "_kohm"] = has(ohms) ? ohms / 1000 : null;
+  });
+  return out;
+}
+
 function points(rows, name) {
   return rows.map(function (row) {
     return { x: msOf(row.ts), y: has(row[name]) ? row[name] : null };
@@ -855,9 +870,9 @@ function ReadingTiles(props) {
     h(Tile, { name: "Pressure", value: num(r.pressure, 1), unit: "hPa" }),
     h(Tile, { name: "Humidity", value: num(r.humidity, 0), unit: "%RH" }),
     h(Tile, { name: "Light", value: num(r.light, 0), unit: "lux" }),
-    h(Tile, { name: "Oxidising", value: num(r.oxidising_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "Reducing", value: num(r.reducing_ppm, 1), unit: "ppm" }),
-    h(Tile, { name: "Ammonia (NH3)", value: num(r.ammonia_ppm, 1), unit: "ppm" }),
+    h(Tile, { name: "Oxidising", value: num(r.oxidising_kohm, 1), unit: "kΩ" }),
+    h(Tile, { name: "Reducing", value: num(r.reducing_kohm, 1), unit: "kΩ" }),
+    h(Tile, { name: "Ammonia (NH3)", value: num(r.ammonia_kohm, 1), unit: "kΩ" }),
     h(Tile, { name: "Samples", value: grouped(props.samples), unit: "rows", accent: true }));
 }
 
@@ -873,9 +888,9 @@ function AirPanel(props) {
   var rows = props.rows;
 
   var gas = [
-    { name: "Oxidising", unit: "ppm", colour: BLUE, data: points(rows, "oxidising_ppm") },
-    { name: "Reducing", unit: "ppm", colour: SKY, data: points(rows, "reducing_ppm") },
-    { name: "Ammonia", unit: "ppm", colour: BLACK, data: points(rows, "ammonia_ppm") }
+    { name: "Oxidising", unit: "kΩ", places: 1, colour: BLUE, data: points(rows, "oxidising_kohm") },
+    { name: "Reducing", unit: "kΩ", places: 1, colour: SKY, data: points(rows, "reducing_kohm") },
+    { name: "Ammonia", unit: "kΩ", places: 1, colour: BLACK, data: points(rows, "ammonia_kohm") }
   ];
 
   var climate = [
@@ -885,8 +900,8 @@ function AirPanel(props) {
 
   return h("div", { className: "section" },
     h("h2", null, "Air Quality Trends"),
-    h(ChartHead, { name: "Gas concentration (ppm)", series: gas }),
-    h(LineChart, { series: gas, yTitle: "Concentration (ppm)" }),
+    h(ChartHead, { name: "Gas sensor resistance (kΩ), lower means more gas", series: gas }),
+    h(LineChart, { series: gas, yTitle: "Resistance (kΩ)" }),
     h(ChartHead, { name: "Temperature (°C) & Humidity (%RH)", series: climate }),
     h(LineChart, { series: climate, twoAxis: true, yTitle: "Temperature (°C)", y2Title: "Humidity (%RH)" }));
 }
@@ -909,9 +924,9 @@ var SENSOR_BARS = [
   { key: "humidity", long: "Humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
   { key: "pressure", long: "Pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 1 },
   { key: "light", long: "Light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
-  { key: "oxidising_ppm", long: "Oxidising", name: "Oxidising", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "reducing_ppm", long: "Reducing", name: "Reducing", unit: "ppm", lo: 0, hi: 5, places: 2 },
-  { key: "ammonia_ppm", long: "Ammonia (NH3)", name: "NH3", unit: "ppm", lo: 0, hi: 5, places: 2 }
+  { key: "oxidising_kohm", long: "Oxidising", name: "Oxidising", unit: "kΩ", lo: 0, hi: 100, places: 1 },
+  { key: "reducing_kohm", long: "Reducing", name: "Reducing", unit: "kΩ", lo: 0, hi: 1000, places: 0 },
+  { key: "ammonia_kohm", long: "Ammonia (NH3)", name: "NH3", unit: "kΩ", lo: 0, hi: 500, places: 0 }
 ];
 
 var TARGET_ROWS = [
@@ -922,9 +937,9 @@ var TARGET_ROWS = [
 
 // the readings averaged while each target was in view
 var AVG_COLS = [
-  { key: "oxidising_ppm", name: "Oxidising (ppm)", places: 2 },
-  { key: "reducing_ppm", name: "Reducing (ppm)", places: 2 },
-  { key: "ammonia_ppm", name: "NH3 (ppm)", places: 2 },
+  { key: "oxidising_kohm", name: "Oxidising (kΩ)", places: 1 },
+  { key: "reducing_kohm", name: "Reducing (kΩ)", places: 1 },
+  { key: "ammonia_kohm", name: "NH3 (kΩ)", places: 1 },
   { key: "temperature", name: "Temperature (°C)", places: 1 },
   { key: "humidity", name: "Humidity (%RH)", places: 0 }
 ];
@@ -984,10 +999,10 @@ function ChartTabs(props) {
     chart = h(PosePanel, { rows: props.poseRows, id: props.poseId, tall: true });
   } else {
     var sets = {
-      gas: { name: "Gas concentration (ppm)", axis: "Concentration (ppm)", series: [
-        { name: "Oxidising", unit: "ppm", colour: BLUE, data: points(rows, "oxidising_ppm") },
-        { name: "Reducing", unit: "ppm", colour: SKY, data: points(rows, "reducing_ppm") },
-        { name: "Ammonia", unit: "ppm", colour: BLACK, data: points(rows, "ammonia_ppm") }] },
+      gas: { name: "Gas sensor resistance (kΩ), lower means more gas", axis: "Resistance (kΩ)", series: [
+        { name: "Oxidising", unit: "kΩ", places: 1, colour: BLUE, data: points(rows, "oxidising_kohm") },
+        { name: "Reducing", unit: "kΩ", places: 1, colour: SKY, data: points(rows, "reducing_kohm") },
+        { name: "Ammonia", unit: "kΩ", places: 1, colour: BLACK, data: points(rows, "ammonia_kohm") }] },
       temperature: { name: "Temperature (°C)", axis: "Temperature (°C)", series: [
         { name: "Temperature", unit: "°C", colour: BLACK, data: points(rows, "temperature") }] },
       humidity: { name: "Humidity (%RH)", axis: "Humidity (%RH)", series: [
@@ -1196,9 +1211,9 @@ var COLUMNS = {
     { name: "Pressure (hPa)", get: function (r) { return cell(r.pressure, 1); } },
     { name: "Humidity (%RH)", get: function (r) { return cell(r.humidity, 1); } },
     { name: "Light (lux)", get: function (r) { return cell(r.light, 0); } },
-    { name: "Oxidising (ppm)", get: function (r) { return cell(r.oxidising_ppm, 2); } },
-    { name: "Reducing (ppm)", get: function (r) { return cell(r.reducing_ppm, 2); } },
-    { name: "Ammonia (ppm)", get: function (r) { return cell(r.ammonia_ppm, 2); } },
+    { name: "Oxidising (kΩ)", get: function (r) { return cell(r.oxidising_kohm, 2); } },
+    { name: "Reducing (kΩ)", get: function (r) { return cell(r.reducing_kohm, 2); } },
+    { name: "Ammonia (kΩ)", get: function (r) { return cell(r.ammonia_kohm, 2); } },
     { name: "Capture lag (s)", get: function (r) { return cell(r.capture_lag, 2); } }
   ],
   detections: [
@@ -1305,7 +1320,7 @@ function LoggedData(props) {
           setStatus({ text: body.error || "The request failed", error: true });
           return;
         }
-        setRows(body.rows);
+        setRows(body.rows.map(withKohm));
         var text = body.count + " rows from " + dateTimeOf(body.from) + " to " + dateTimeOf(body.to);
         if (body.count >= 5000) { text += " (limit reached, pick a shorter range)"; }
         setStatus({ text: text, error: false });
@@ -1659,7 +1674,7 @@ function App() {
       .then(function (res) { return res.json(); })
       .then(function (body) {
         if (!body.ok || body.rows.length === 0) { return; }
-        setRows(function (old) { return mergeHistory(old, body.rows); });
+        setRows(function (old) { return mergeHistory(old, body.rows.map(withKohm)); });
       })
       .catch(function () {
         // nothing logged yet, the stream will fill the charts in instead
@@ -1728,7 +1743,7 @@ function App() {
           (snap.aruco_in_view || []).forEach(function (id) { markerAt.current[id] = at; });
           return {
             info: snap,
-            reading: snap.reading,
+            reading: withKohm(snap.reading),
             valve: snap.valve,
             gauge: snap.gauge,
             markers: markers,
@@ -1742,11 +1757,11 @@ function App() {
             lastTarget: newestTarget(snap)
           };
         });
-        if (snap.reading) { addReading(setRows, snap.reading); }
+        if (snap.reading) { addReading(setRows, withKohm(snap.reading)); }
       });
 
       es.addEventListener("reading", function (ev) {
-        var row = JSON.parse(ev.data);
+        var row = withKohm(JSON.parse(ev.data));
         lastAt.current = Date.now();
         setData(function (old) {
           return Object.assign({}, old, {

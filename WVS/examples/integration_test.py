@@ -121,9 +121,10 @@ def run_aq(payload, stats, every):
             "pressure": round(1012 + 0.8 * math.sin(t / 60), 1),
             "humidity": round(42 + 4 * math.sin(t / 40), 1),
             "light": round(360 + 40 * math.sin(t / 20)),
-            "oxidising_ppm": round(0.8 + 0.15 * math.sin(t / 16), 3),
-            "reducing_ppm": round(2.1 + 0.3 * math.sin(t / 24), 3),
-            "ammonia_ppm": round(0.6 + 0.1 * math.sin(t / 18), 3),
+            # gas as sensor resistance in ohms, the way AQ's main.py sends it
+            "oxidising_ohms": round(21500 + 3000 * math.sin(t / 16)),
+            "reducing_ohms": round(312000 + 40000 * math.sin(t / 24)),
+            "ammonia_ohms": round(98000 + 12000 * math.sin(t / 18)),
             "captured_at": time.time(),
         })
         if time.time() - last_beat >= HEARTBEAT_SECONDS:
