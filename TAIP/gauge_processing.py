@@ -3,15 +3,15 @@ import numpy as np
 
 
 # ============================================================
-# GAUGE SETTINGS
+# GAUGE SETTINGSc
 # ============================================================
 
 # TEMPORARY manual gauge selection
 # Later this should come from the YOLO detected class
-GAUGE_TYPE = "white"       # "white" or "blue"
+GAUGE_TYPE = "blue"       # "white" or "blue"
 
 # Test video settings
-TEST_VIDEO = "gauge/15sec_gauge.mp4"
+TEST_VIDEO = "gauge/50sec_bgauge.mp4"
 TEST_TIME_MS = 10000
 
 
@@ -617,6 +617,36 @@ if __name__ == "__main__":
 
         exit()
 
+    # Manually select the gauge area
+    # Resize frame only for easier ROI selection
+    scale = 0.3
+
+    selection_frame = cv2.resize(
+        frame,
+        None,
+        fx=scale,
+        fy=scale
+    )
+
+    roi = cv2.selectROI(
+        "Select Gauge",
+        selection_frame,
+        False,
+        False
+    )
+
+    cv2.destroyWindow("Select Gauge")
+
+    x, y, w, h = roi
+
+    # Convert ROI coordinates back to original frame size
+    x = int(x / scale)
+    y = int(y / scale)
+    w = int(w / scale)
+    h = int(h / scale)
+
+    gauge_crop = frame[y:y+h, x:x+w]
+
     # Save raw frame
     cv2.imwrite(
         "gauge_frame.jpg",
@@ -626,7 +656,7 @@ if __name__ == "__main__":
     # Run gauge processing
     circle_output, pressure = (
         process_gauge(
-            frame,
+            gauge_crop,
             GAUGE_TYPE
         )
     )
