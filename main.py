@@ -79,7 +79,7 @@ def aq_loop(stop):
 
     # also follows the screen picked on the web interface (see DisplayController._poll_web)
     display_controller = DisplayController(0)
-    last_ingest = 0.0
+    last_ingest = float("-inf")  # send on the first pass whatever the clock starts at
 
     while not stop.is_set():
         reading = sensor_controller.get_reading()
@@ -151,7 +151,7 @@ def main():
     d = np.load("TAIP/oak_distortion_coefficients_640x480.npy")
     aruco_dict_type = cv2.aruco.DICT_5X5_100
 
-    last_frame_sent = 0.0
+    last_frame_sent = float("-inf")  # send on the first pass whatever the clock starts at
     detections = []
 
     # OAK-D Lite camera setup: one camera, two outputs
