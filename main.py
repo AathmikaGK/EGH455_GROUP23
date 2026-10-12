@@ -1,10 +1,6 @@
 from AQ.sensor_controller import SensorController
 from AQ.display_controller import DisplayController
-from TAIP.pose_estimation import pose_estimation
 
-import cv2
-import depthai as dai
-import numpy as np
 import json
 import os
 import time
@@ -55,11 +51,6 @@ def main():
 
     sensor_controller = SensorController()
 
-    # ArUCO setup
-    k = np.load("TAIP/oak_calibration_matrix_640x480.npy")
-    d = np.load("TAIP/oak_distortion_coefficients_640x480.npy")
-    aruco_dict_type = cv2.aruco.DICT_5X5_100
-
     # 0 = IP
     # 1 = Temperature
     # 2 = Image Feed (not implemented)
@@ -68,56 +59,18 @@ def main():
     display_controller = DisplayController(0)
     last_ingest = 0.0
 
-    # OAK-D Lite camera setup
-    with dai.Pipeline() as pipeline:
+    while True:
 
-        camera = pipeline.create(dai.node.Camera).build(
-            dai.CameraBoardSocket.CAM_A
-        )
+        reading = sensor_controller.get_reading()
+        print(reading)
 
-        rgb_output = camera.requestOutput(
-            (640, 480),
-            type=dai.ImgFrame.Type.BGR888p
-        )
+        display_controller.update(reading)
 
-        rgb_queue = rgb_output.createOutputQueue()
+        if time.monotonic() - last_ingest >= INGEST_INTERVAL_SECONDS:
+            send_reading(reading)
+            last_ingest = time.monotonic()
 
-        pipeline.start()
-        
-        while pipeline.isRunning():
-
-            # Get camera frame
-            frame_data = rgb_queue.get()
-            frame = frame_data.getCvFrame()
-
-            # Run ArUCO processing
-            aruco_output, marker_data = pose_estimation(
-                frame.copy(),
-                aruco_dict_type,
-                k,
-                d
-            )
-
-            if marker_data:
-                print("ArUCO:", marker_data)
-
-            # temporarily display the camera
-            cv2.imshow("ArUCO Integration Test", aruco_output)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-            # Existing AQ code
-            reading = sensor_controller.get_reading()
-            print(reading)
-
-            display_controller.update(reading)
-
-            if time.monotonic() - last_ingest >= INGEST_INTERVAL_SECONDS:
-                send_reading(reading)
-                last_ingest = time.monotonic()
-
-            time.sleep(0.1)
-        cv2.destroyAllWindows()
+        time.sleep(0.1)
 
 
 if __name__ == "__main__":
