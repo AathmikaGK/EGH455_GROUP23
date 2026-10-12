@@ -11,6 +11,7 @@ export script are in TAIP/training/.
 add_yolo() hangs the detector off an existing Camera node, so it can share the
 camera with the ArUco stream in main.py (only one process can open the OAK-D).
 """
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,7 +29,9 @@ ANCHOR_MASKS = {"side80": [0, 1, 2], "side40": [3, 4, 5], "side20": [6, 7, 8]}  
 OUTPUT_NAMES = ["output1_yolov5", "output2_yolov5", "output3_yolov5"]
 
 
-NN_FPS = 10  # the model tops out around 7.5 fps on the OAK-D Lite at 640
+# The model tops out around 7.5 fps on the OAK-D Lite at 640. 5 fps keeps the
+# chip cooler (it passed 105 C at 10 fps on the bench) and is plenty at 2 m/s.
+NN_FPS = float(os.environ.get("TAIP_NN_FPS", "5"))
 
 
 def decode(heads):

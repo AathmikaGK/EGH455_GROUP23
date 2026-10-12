@@ -28,6 +28,12 @@ SHOW_WINDOW = os.environ.get("TAIP_SHOW", "1") != "0"
 
 FRAME_SIZE = (640, 480)  # matches the ArUco calibration files
 
+# the loop only uses a few frames a second; a lower camera rate keeps the
+# OAK-D cooler (no fan; it shuts down above 105 C)
+CAMERA_FPS = float(os.environ.get("TAIP_CAMERA_FPS", "10"))
+TEMP_LOG_SECONDS = 30
+TEMP_WARN_C = 95.0
+
 # gauge crops smaller than this are too small to read a needle from
 MIN_GAUGE_CROP = 40
 
@@ -152,6 +158,7 @@ def main():
     aruco_dict_type = cv2.aruco.DICT_5X5_100
 
     last_frame_sent = float("-inf")  # send on the first pass whatever the clock starts at
+    last_temp_log = float("-inf")
     detections = []
 
     # OAK-D Lite camera setup: one camera, two outputs
@@ -167,7 +174,8 @@ def main():
 
         rgb_output = camera.requestOutput(
             FRAME_SIZE,
-            type=dai.ImgFrame.Type.BGR888p
+            type=dai.ImgFrame.Type.BGR888p,
+            fps=CAMERA_FPS
         )
 
         # small non-blocking queue: always process a recent frame instead of
@@ -176,9 +184,16 @@ def main():
         det_queue = add_yolo(pipeline, camera)
 
         pipeline.start()
+        device = pipeline.getDefaultDevice()
 
         try:
             while pipeline.isRunning():
+
+                if time.monotonic() - last_temp_log >= TEMP_LOG_SECONDS:
+                    chip_c = device.getChipTemperature().average
+                    print("[OAK-D] chip temperature %.0f C%s" % (
+                        chip_c, "  -- TOO HOT, check airflow" if chip_c >= TEMP_WARN_C else ""))
+                    last_temp_log = time.monotonic()
 
                 # Get camera frame
                 frame_data = rgb_queue.get()
