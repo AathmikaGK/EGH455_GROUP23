@@ -7,7 +7,6 @@
      style.css   max-width: 900px    readings tiles go 4 -> 2
      style.css   max-width: 760px    target cards and drill strip stack
      phone       max-width: 759px    everything below, one column
-     small       max-width: 400px    the narrowest phones (360 px)
      landscape   (orientation: landscape) and (max-height: 500px), a phone on its side */
 
 /* phone dashboard. the appendix F grid becomes one column: the live image
@@ -129,10 +128,6 @@
   /* page gutters, the desktop 22 px is a lot of a 360 px screen */
   .page { padding: 12px 12px 20px; }
   .section { padding: 14px 12px 16px; margin-bottom: 12px; }
-}
-
-@media (max-width: 400px) {
-  .brand .sub { display: none; }
 }
 
 /* logged data, system log and image history forms. each date box gets its

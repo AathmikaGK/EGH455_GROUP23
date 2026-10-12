@@ -259,13 +259,20 @@ function SoundControls(props) {
     props.sound.muted ? "Voice off (unmute)" : "Voice on (mute)");
 }
 
+// a phone either way up: the mobile.css phone width, or a phone on its side.
+// the header says it is the smartphone ground control station there
+var HANDHELD = window.matchMedia
+  ? window.matchMedia("(max-width: 759px), (orientation: landscape) and (max-height: 500px)")
+  : { matches: false };
+
 function Header(props) {
   var stream = streamState(props);
 
   return h("div", { className: "topbar" },
     h("div", { className: "brand" },
       h("span", { className: "name" }, "UAV PAYLOAD"),
-      h("span", { className: "sub" }, "Web Interface")),
+      // the header redraws every second, so a turned phone updates this too
+      h("span", { className: "sub" }, HANDHELD.matches ? "Mobile GCS" : "Web Interface")),
     h("div", { className: "spacer" }),
     h("div", { className: "hud" },
       h("div", { className: "hud-item" },
