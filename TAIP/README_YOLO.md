@@ -28,7 +28,10 @@ All 28 test gauge boxes come from one video, so the gauge figure is a small samp
 
 ## On the Pi
 
-Requires depthai 3.x (same API as `pose_estimation.py`). From the repo root:
+Requires depthai 3.x (same API as `pose_estimation.py`). The model runs on the
+OAK-D; its three output heads are decoded on the Pi in `yolo_detection.decode()`
+(depthai 3.10's on-device YOLO parser crashed the camera with this blob).
+The model runs at about 7.5 fps on the OAK-D Lite. From the repo root:
 
 ```bash
 source ~/egh455/bin/activate
