@@ -218,3 +218,13 @@
   .h2-link { display: inline-block; padding: 12px 0; margin: -12px 0; }
   .h2-link.block { margin: 0; }
 }
+
+/* the MOBILE chip in the header is solid on a phone, either way up, so the
+   two presentations are told apart at a glance (style.css has the soft one) */
+@media (max-width: 759px), (orientation: landscape) and (max-height: 500px) {
+  .mode-tag {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+}

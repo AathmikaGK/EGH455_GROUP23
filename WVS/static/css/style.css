@@ -119,6 +119,24 @@ body {
   color: var(--dimmer);
 }
 
+/* which interface this is, WEB on a computer and MOBILE on a phone (app.js).
+   a soft blue chip here, mobile.css makes the phone one solid */
+.mode-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--blue-line);
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  line-height: 18px;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+
 .spacer { flex: 1; }
 
 .hud {

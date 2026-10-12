@@ -267,12 +267,15 @@ var HANDHELD = window.matchMedia
 
 function Header(props) {
   var stream = streamState(props);
+  // one app, two presentations: the header says which one this is.
+  // it redraws every second, so a turned phone updates this too
+  var mobile = HANDHELD.matches;
 
   return h("div", { className: "topbar" },
     h("div", { className: "brand" },
-      h("span", { className: "name" }, "UAV PAYLOAD"),
-      // the header redraws every second, so a turned phone updates this too
-      h("span", { className: "sub" }, HANDHELD.matches ? "Mobile GCS" : "Web Interface")),
+      h("span", { className: "name" }, "UAV PAYLOAD",
+        h("span", { className: "mode-tag" }, mobile ? "Mobile" : "Web")),
+      h("span", { className: "sub" }, mobile ? "Mobile Interface · GCS" : "Web Interface")),
     h("div", { className: "spacer" }),
     h("div", { className: "hud" },
       h("div", { className: "hud-item" },
