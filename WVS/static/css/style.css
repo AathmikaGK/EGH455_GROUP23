@@ -1211,6 +1211,15 @@ tr.error td { color: var(--red); }
 
 .bar-value.none { color: var(--dimmer); }
 
+/* the unit sits right under its number, the bar is too narrow for one line */
+.bar-unit {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dim);
+  text-align: center;
+}
+
 .bar-tube {
   width: 30px;
   height: 120px;

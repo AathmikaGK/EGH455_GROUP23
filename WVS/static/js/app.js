@@ -992,7 +992,8 @@ function SensorBars(props) {
     var v = r[b.key];
     var pct = has(v) ? Math.max(0, Math.min(100, (v - b.lo) / (b.hi - b.lo) * 100)) : 0;
     return h("div", { key: b.key, className: "bar" },
-      h("div", { className: "bar-value" + (has(v) ? "" : " none") }, num(v, b.places)),
+      h("div", { className: "bar-value" + (has(v) ? "" : " none") }, num(v, b.places),
+        h("span", { className: "bar-unit" }, b.unit)),
       h("div", { className: "bar-tube" }, h("div", { className: "bar-fill", style: { height: pct + "%" } })),
       h("div", { className: "bar-name" }, b.name, h("br"), "(" + b.unit + ")"));
   }));
