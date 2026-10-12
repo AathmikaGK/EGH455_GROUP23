@@ -519,3 +519,123 @@
     color: #fff;
   }
 }
+
+/* mobile GCS look. the phone gets an operator console frame: a dark header and
+   a dark floating menu around a slate page, white instrument cards in
+   between. the navy is the camera screens' colour from style.css, the accents
+   are its blue, green and red. status accents only follow classes the page
+   already sets (lamp off, marker lost, gauge note alert); nothing animates */
+
+@media (max-width: 759px) {
+  body { background: #dfe5ee; }
+
+  /* the header joins the dark status strip under it */
+  .topbar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+  }
+
+  .brand .name { color: #ffffff; }
+  .brand .sub { color: #a8b4c6; }
+  .hud-item { border-color: #1e293b; }
+
+  /* the status strip: a stripe on the left, green while data arrives, grey
+     when the link is down (lamp off). :has() is a progressive touch, a browser
+     without it keeps the green */
+  .ops {
+    border: 1px solid #1e293b;
+    border-left: 4px solid #4ade80;
+  }
+
+  .ops:has(.ops-lamp.off) { border-left-color: #64748b; }
+  .ops-line.alert { background: rgba(248, 113, 113, 0.08); border-radius: 8px; }
+
+  /* section labels: card headings read as console labels with a blue bar,
+     the same for page sections and dashboard panels */
+  .section h2 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .section h2::before,
+  .panel-title::before {
+    content: "";
+    flex: none;
+    width: 4px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--blue);
+  }
+
+  /* links and badges inside a heading keep their own case and sit at the end */
+  .section h2 .h2-link,
+  .section h2 .h2-side {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0.3px;
+  }
+
+  .panel-title { font-size: 13px; letter-spacing: 1px; }
+
+  /* instrument cards: the value leads, the label steps back, a faint tint */
+  .sensor-card {
+    border-color: #d3dceb;
+    background: linear-gradient(180deg, #f9fbff, #eef3fa);
+  }
+
+  .sensor-card .k { font-size: 11px; letter-spacing: 0.9px; }
+  .sensor-card .v { font-size: 28px; }
+
+  /* the target just found stands out from the ordinary cards */
+  .found-box {
+    border-color: var(--blue);
+    border-left-width: 6px;
+    background: #e2ebff;
+    box-shadow: 0 4px 14px rgba(29, 78, 216, 0.16);
+  }
+
+  /* alarm accent: the gauge card's note says it is under the drill threshold */
+  .card:has(.note.alert) { border-color: var(--red); box-shadow: inset 4px 0 0 var(--red); }
+
+  /* the bottom menu floats: a dark rounded bar off the screen edge, the open
+     page as a solid blue tab. still above the gesture bar (safe area) */
+  body { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+
+  .nav {
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    gap: 2px;
+    padding: 5px;
+    border: 1px solid #1e293b;
+    border-radius: 18px;
+    background: #0f172a;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+  }
+
+  .nav a {
+    min-height: 54px;
+    padding: 5px 0 4px;
+    border-top: none;
+    border-radius: 13px;
+    color: #a8b4c6;
+  }
+
+  .nav a:hover { background: none; color: #ffffff; }
+
+  .nav a.on,
+  .nav a.on:hover {
+    background: var(--blue);
+    color: #ffffff;
+  }
+}
+
+@media (max-width: 400px) {
+  .sensor-card .v { font-size: 24px; }
+}
