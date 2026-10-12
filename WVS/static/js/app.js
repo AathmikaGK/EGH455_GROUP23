@@ -1999,7 +1999,7 @@ function App() {
   } else if (page === "logs") {
     body = h("div", { className: "page wide" }, h(LoggedData, {
       key: "logs", fixedType: "system_log", title: "System Operation Log",
-      intro: "Log messages from every subsystem (WVS, AQ, TAIP, EDM), including the WVS heartbeat every 10 s. Run the system for at least 10 minutes before the acceptance test."
+      intro: "Log messages from every subsystem (WVS, AQ, TAIP, EDM), including the WVS heartbeat every 10 s."
     }));
   } else {
     // the newest aruco marker is the one the targets table shows
