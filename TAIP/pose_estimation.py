@@ -6,7 +6,10 @@ py pose_estimation.py --K_Matrix oak_calibration_matrix_640x480.npy --D_Coeff oa
 import numpy as np
 import cv2
 import sys
-from utils import ARUCO_DICT
+try:
+    from TAIP.utils import ARUCO_DICT
+except ImportError:
+    from utils import ARUCO_DICT
 import argparse
 import time
 import depthai as dai
