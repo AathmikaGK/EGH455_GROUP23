@@ -772,7 +772,7 @@ function ReadingTiles(props) {
 
   return h("div", { className: "tiles" },
     h(Tile, { name: "Temperature", value: num(r.temperature, 1), unit: "°C" }),
-    h(Tile, { name: "Pressure", value: num(r.pressure, 0), unit: "hPa" }),
+    h(Tile, { name: "Pressure", value: num(r.pressure, 1), unit: "hPa" }),
     h(Tile, { name: "Humidity", value: num(r.humidity, 0), unit: "%RH" }),
     h(Tile, { name: "Light", value: num(r.light, 0), unit: "lux" }),
     h(Tile, { name: "Oxidising", value: num(r.oxidising_ppm, 1), unit: "ppm" }),
@@ -827,7 +827,7 @@ var CHART_TABS = [
 var SENSOR_BARS = [
   { key: "temperature", name: "Temp.", unit: "°C", lo: 0, hi: 50, places: 1 },
   { key: "humidity", name: "Humid.", unit: "%RH", lo: 0, hi: 100, places: 0 },
-  { key: "pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 0 },
+  { key: "pressure", name: "Pressure", unit: "hPa", lo: 950, hi: 1050, places: 1 },
   { key: "light", name: "Light", unit: "lux", lo: 0, hi: 1000, places: 0 },
   { key: "oxidising_ppm", name: "Oxidising", unit: "ppm", lo: 0, hi: 5, places: 2 },
   { key: "reducing_ppm", name: "Reducing", unit: "ppm", lo: 0, hi: 5, places: 2 },
