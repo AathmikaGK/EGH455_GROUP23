@@ -6,8 +6,8 @@ import numpy as np
 # GAUGE SETTINGSc
 # ============================================================
 
-# TEMPORARY manual gauge selection
-# Later this should come from the YOLO detected class
+# Manual gauge selection for the test program below.
+# main.py picks the type per crop with detect_gauge_type().
 GAUGE_TYPE = "blue"       # "white" or "blue"
 
 # Test video settings
@@ -39,6 +39,36 @@ def get_latest_pressure():
 
 
 # ============================================================
+# GAUGE TYPE FROM COLOUR
+# ============================================================
+
+# YOLO has a single "gauge" class (project spec: valve_open, valve_closed,
+# gauge), so blue vs white is decided here from the crop's colour.
+# CALIBRATE: run on real crops of both gauges, read the printed fraction,
+# and set the threshold between the two.
+BLUE_HUE = (95, 130)        # OpenCV hue scale 0-179
+BLUE_MIN_SATURATION = 80
+BLUE_FRACTION_THRESHOLD = 0.15
+
+
+def detect_gauge_type(crop):
+
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+
+    blue = (
+        (hsv[..., 0] >= BLUE_HUE[0])
+        & (hsv[..., 0] <= BLUE_HUE[1])
+        & (hsv[..., 1] >= BLUE_MIN_SATURATION)
+    )
+
+    fraction = float(blue.mean())
+
+    print(f"Gauge blue fraction: {fraction:.2f}")
+
+    return "blue" if fraction >= BLUE_FRACTION_THRESHOLD else "white"
+
+
+# ============================================================
 # WHITE GAUGE NEEDLE DETECTION
 # ============================================================
 
@@ -63,7 +93,8 @@ def detect_white_needle(gray, gray_blurred, x, y, radius, output):
         masked_edges,
         1,
         np.pi / 180,
-        threshold=50,
+        # scaled with the dial; 50 at the ~270 px radius it was tuned on
+        threshold=max(15, int(radius * 0.18)),
         minLineLength=int(radius * 0.25),
         maxLineGap=15
     )
@@ -126,7 +157,8 @@ def detect_white_needle(gray, gray_blurred, x, y, radius, output):
         int(y - uy * sample_distance)
     )
 
-    patch_size = 15
+    # 15 px at the ~270 px radius it was tuned on
+    patch_size = max(3, int(radius * 0.055))
 
     def dark_pixel_count(gray_image, point):
 
@@ -217,7 +249,8 @@ def detect_blue_needle(gray, gray_blurred, x, y, radius, output):
         masked_edges,
         1,
         np.pi / 180,
-        threshold=50,
+        # scaled with the dial; 50 at the ~270 px radius it was tuned on
+        threshold=max(15, int(radius * 0.18)),
         minLineLength=int(radius * 0.25),
         maxLineGap=15
     )
@@ -308,7 +341,8 @@ def detect_blue_needle(gray, gray_blurred, x, y, radius, output):
                 * fraction
             )
 
-            patch_size = 8
+            # 8 px at the ~270 px radius it was tuned on
+            patch_size = max(2, int(radius * 0.03))
 
             patch = gray_image[
                 max(0, py - patch_size):min(
@@ -413,15 +447,20 @@ def process_gauge(frame, gauge_type):
         2
     )
 
+    # Radius limits scale with the crop, so the same code works on a
+    # hand-picked ROI from phone video (crop ~600 px -> 180-330, as before)
+    # and on a small YOLO box crop from the 640x480 OAK frame.
+    side = min(gray.shape[:2])
+
     circles = cv2.HoughCircles(
         gray_blurred,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
-        minDist=200,
+        minDist=side,
         param1=100,
         param2=50,
-        minRadius=180,
-        maxRadius=300
+        minRadius=int(side * 0.30),
+        maxRadius=int(side * 0.60)
     )
 
     circle_output = frame.copy()
