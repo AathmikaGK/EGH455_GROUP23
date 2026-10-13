@@ -52,6 +52,17 @@ def video_feed():
     return r
 
 
+@video_bp.route("/video_snapshot.jpg")
+def video_snapshot():
+    # the newest live frame (boxes already drawn), for clients that want one
+    # picture rather than the mjpeg stream, e.g. the payload LCD
+    if not frames.is_fresh() or frames.latest["jpeg"] is None:
+        return Response("no live frame", status=503, mimetype="text/plain")
+    r = Response(frames.latest["jpeg"], mimetype="image/jpeg")
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
 @video_bp.route("/frames/<int:frame_id>.jpg")
 def saved_frame(frame_id):
     # the id alone gives the path, so this only ever reads inside captures/

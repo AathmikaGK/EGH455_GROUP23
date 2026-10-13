@@ -3,6 +3,7 @@ import colorsys
 import time
 import json
 import os
+from io import BytesIO
 from urllib.request import urlopen
 
 import st7735
@@ -15,6 +16,10 @@ from PIL import Image, ImageDraw, ImageFont
 # Defaults to the WVS server on this Pi. WVS_LCD_URL points it elsewhere.
 LCD_URL = os.environ.get("WVS_LCD_URL", "http://127.0.0.1:8000/api/lcd")
 LCD_POLL_SECONDS = float(os.environ.get("WVS_LCD_POLL", "2.0"))
+
+# Latest TAQ frame (detection boxes drawn by WVS) for the "detection" screen.
+TAQ_FRAME_URL = os.environ.get("WVS_TAQ_FRAME_URL", "http://127.0.0.1:8000/video_snapshot.jpg")
+TAQ_FRAME_SECONDS = 0.3
 
 # WVS names the screens, this class numbers them. Maps a name from
 # GET /api/lcd to the mode used by update().
@@ -77,6 +82,9 @@ class DisplayController:
 
         self.temperature_history = [1] * self.width
 
+        # last TAQ frame fetch, so WVS is asked at most every TAQ_FRAME_SECONDS
+        self.last_taq_fetch = float("-inf")
+
     def update(self, reading):
 
         # Apply a dashboard pick before the proximity check, so a hand wave
@@ -97,7 +105,7 @@ class DisplayController:
             )
             
         elif self.mode == 2:
-            self.show_taq_placeholder()
+            self.show_taq_feed()
 
     def set_mode(self, mode):
         """
@@ -271,6 +279,30 @@ class DisplayController:
 
         self.display.display(self.image)
         
+    def show_taq_feed(self):
+        """
+        Live target detection on the LCD (REQ: LCD shows live feed of target
+        detection). Shows WVS's newest frame, boxes included, letterboxed to
+        the screen; falls back to the placeholder when there is no live feed.
+        """
+        if time.monotonic() - self.last_taq_fetch < TAQ_FRAME_SECONDS:
+            return
+        self.last_taq_fetch = time.monotonic()
+
+        try:
+            # 0.5 s timeout: a slow WVS must not stall the sensor loop for long
+            with urlopen(TAQ_FRAME_URL, timeout=0.5) as response:
+                frame = Image.open(BytesIO(response.read())).convert("RGB")
+        except (OSError, ValueError):
+            # WVS down or no live frame (503)
+            self.show_taq_placeholder()
+            return
+
+        frame.thumbnail((self.width, self.height))
+        self.image.paste((0, 0, 0), (0, 0, self.width, self.height))
+        self.image.paste(frame, ((self.width - frame.width) // 2, (self.height - frame.height) // 2))
+        self.display.display(self.image)
+
     def show_taq_placeholder(self):
         
         self.draw.rectangle(
