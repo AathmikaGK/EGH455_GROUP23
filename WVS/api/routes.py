@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 import config
+from EDM.drill_controller import activate_drill
 from db import store
 from ingestion import checks, writer
 from live import bus
@@ -154,6 +155,21 @@ def lcd_set():
     writer.send_to_writer("log", {"component": "WVS", "message": "payload lcd display set to " + mode})
     state["ok"] = True
     return jsonify(state)
+
+
+@api_bp.route("/drill/activate", methods=["POST"])
+def drill_activate():
+    # the dashboard "Activate drill" button. runs the drill straight away, the
+    # request returns once activate_drill() has finished
+    try:
+        activate_drill()
+    except Exception as error:
+        writer.send_to_writer("log", {"component": "WVS", "level": "error",
+                                      "message": "activate drill failed: %s" % error})
+        return jsonify({"ok": False, "error": "activate drill failed: %s" % error}), 500
+
+    writer.send_to_writer("log", {"component": "WVS", "message": "drill activated from the dashboard"})
+    return jsonify({"ok": True})
 
 
 @api_bp.route("/status")
