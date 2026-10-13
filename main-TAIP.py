@@ -25,9 +25,11 @@ SHOW_WINDOW = os.environ.get("TAIP_SHOW", "1") != "0"
 
 FRAME_SIZE = (640, 480)  # matches the ArUco calibration files
 
-# the loop only uses a few frames a second; a lower camera rate keeps the
-# OAK-D cooler (no fan; it shuts down above 105 C)
-CAMERA_FPS = float(os.environ.get("TAIP_CAMERA_FPS", "10"))
+# One rate for both camera outputs (frames and YOLO): different rates on two
+# outputs of one camera stalled the pipeline after the first frame on the Pi.
+# 5 fps is near the model's ~7.5 fps limit, plenty at 2 m/s, and keeps the
+# OAK-D cooler (no fan; it shuts down above 105 C).
+CAMERA_FPS = float(os.environ.get("TAIP_CAMERA_FPS", "5"))
 TEMP_LOG_SECONDS = 30
 TEMP_WARN_C = 95.0
 
@@ -115,7 +117,7 @@ def main():
         # small non-blocking queue: always process a recent frame instead of
         # falling behind if a loop iteration is slow
         rgb_queue = rgb_output.createOutputQueue(maxSize=4, blocking=False)
-        det_queue = add_yolo(pipeline, camera)
+        det_queue = add_yolo(pipeline, camera, fps=CAMERA_FPS)
 
         pipeline.start()
         device = pipeline.getDefaultDevice()

@@ -90,14 +90,18 @@ class DetectionQueue:
         return SimpleNamespace(detections=decode(heads))
 
 
-def add_yolo(pipeline, camera):
-    """Add the detector to a pipeline; returns a DetectionQueue (call before pipeline.start())."""
+def add_yolo(pipeline, camera, fps=NN_FPS):
+    """
+    Add the detector to a pipeline; returns a DetectionQueue (call before pipeline.start()).
+    If the camera has other outputs, pass their fps: two outputs of one camera
+    at different rates stalled the pipeline on the Pi after the first frame.
+    """
     # STRETCH matches the Roboflow "Stretch to 640x640" preprocessing used in
     # training and keeps the full field of view, so normalised boxes line up
     # with any other full-view output of the same camera (e.g. 640x480).
     # BGR planar matches the blob (converted with --reverse_input_channel).
     nn_input = camera.requestOutput(INPUT_SIZE, type=dai.ImgFrame.Type.BGR888p,
-                                    resizeMode=dai.ImgResizeMode.STRETCH, fps=NN_FPS)
+                                    resizeMode=dai.ImgResizeMode.STRETCH, fps=fps)
 
     # The model runs on the VPU; its three output heads are decoded on the
     # host (decode() above). depthai 3.10's on-device YOLO parser

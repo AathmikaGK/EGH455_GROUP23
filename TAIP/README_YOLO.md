@@ -53,8 +53,9 @@ Bench test of the model alone, prints detections: `python3 -m TAIP.detect_oakd`.
 Only one process can open the camera: stop `main-TAIP.py` before running it.
 
 `main-TAIP.py` prints the OAK-D chip temperature every 30 s. The camera has no
-fan and shuts down above 105 C; give it airflow on the bench. Rates can be
-lowered with `TAIP_CAMERA_FPS` (default 10) and `TAIP_NN_FPS` (default 5).
+fan and shuts down above 105 C; give it airflow on the bench. Both camera
+outputs run at `TAIP_CAMERA_FPS` (default 5). Keep them equal: different
+rates on the two outputs stalled the pipeline after the first frame.
 
 ## How main-TAIP.py uses it
 
