@@ -59,6 +59,11 @@ rates on the two outputs stalled the pipeline after the first frame.
 
 ## How main-TAIP.py uses it
 
+**Auto drill:** after 3 gauge readings in a row below 2.0 bar (`WVS_DRILL_BAR`,
+System Requirements), `main-TAIP.py` asks WVS to run the drill once through
+`POST /api/drill/activate` (see `EDM/auto_trigger.py`). The servo code itself
+goes in `EDM/drill_controller.py`, which is still a placeholder.
+
 One camera, two outputs: 640x480 for ArUco (matches the calibration files),
 WVS and display, and 640x640 stretched for YOLO (the same resize used in
 training). Both keep the full field of view, so YOLO boxes scale straight

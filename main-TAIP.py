@@ -9,6 +9,7 @@ Enviro+ sensors or LCD.
 from TAIP.pose_estimation import pose_estimation, send_frame_to_webviz
 from TAIP.yolo_detection import add_yolo, to_targets
 from TAIP.gauge_processing import detect_gauge_type, process_gauge
+from EDM.auto_trigger import DrillTrigger, THRESHOLD_BAR
 
 import cv2
 import depthai as dai
@@ -96,6 +97,7 @@ def main():
     last_frame_sent = float("-inf")  # send on the first pass whatever the clock starts at
     last_temp_log = float("-inf")
     detections = []
+    drill = DrillTrigger()
 
     # OAK-D Lite camera setup: one camera, two outputs
     #   640x480 frames for ArUco (calibrated size), WVS and display
@@ -121,7 +123,7 @@ def main():
 
         pipeline.start()
         device = pipeline.getDefaultDevice()
-        print("TAIP running: ArUco + YOLO -> WVS. Ctrl+C to stop.")
+        print("TAIP running: ArUco + YOLO -> WVS. Drill fires below %.1f bar. Ctrl+C to stop." % THRESHOLD_BAR)
 
         try:
             while pipeline.isRunning():
@@ -159,6 +161,9 @@ def main():
 
                 if yolo_targets:
                     print("YOLO:", yolo_targets)
+
+                # Auto drill once the gauge stays below the threshold
+                drill.update([t["gauge_value"] for t in yolo_targets if "gauge_value" in t])
 
                 # Send the clean frame and every target to WVS; WVS draws the boxes
                 if time.monotonic() - last_frame_sent >= FRAME_INTERVAL_SECONDS:
