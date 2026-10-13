@@ -21,7 +21,7 @@ All 28 test gauge boxes come from one video, so the gauge figure is a small samp
 |---|---|
 | `models/best_openvino_2022.1_6shave.blob` | Model for the OAK-D (three raw YOLO heads, decoded on the VPU) |
 | `models/best.pt` | PyTorch weights, master copy |
-| `yolo_detection.py` | `add_yolo(pipeline, camera)` and `to_targets()`, used by `main.py` |
+| `yolo_detection.py` | `add_yolo(pipeline, camera)`, `decode()` and `to_targets()`, used by `main-TAIP.py` |
 | `detect_oakd.py` | Standalone bench test, prints detections |
 | `gauge_processing.py` | Needle reading; `detect_gauge_type()` picks blue/white from the crop colour |
 | `training/` | Class-strip script, blob export script, Colab notebook with full log, training curves |
@@ -31,23 +31,32 @@ All 28 test gauge boxes come from one video, so the gauge figure is a small samp
 Requires depthai 3.x (same API as `pose_estimation.py`). The model runs on the
 OAK-D; its three output heads are decoded on the Pi in `yolo_detection.decode()`
 (depthai 3.10's on-device YOLO parser crashed the camera with this blob).
-The model runs at about 7.5 fps on the OAK-D Lite. From the repo root:
+The model runs at about 7.5 fps on the OAK-D Lite.
+
+Three processes, one SSH window each (all from the repo root):
 
 ```bash
+# 1. web server (any venv with Flask)
 source ~/egh455/bin/activate
-python3 -c "import depthai; print(depthai.__version__)"
+cd WVS && WVS_USE_DB=0 python3 app.py        # WVS_USE_DB=0: no MariaDB, rows kept in memory
 
-# 1. model alone, works over SSH
-python3 -m TAIP.detect_oakd
+# 2. air quality + LCD (needs the Enviro+ libraries)
+source ~/enviroplus/env/bin/activate
+python3 main.py
 
-# 2. everything: AQ + ArUco + YOLO + gauge reading -> WVS
-#    start WVS first (see WVS/README.md); TAIP_SHOW=0 if there's no screen
-TAIP_SHOW=0 python3 main.py
+# 3. camera: ArUco + YOLO + gauge reading -> WVS
+source ~/enviroplus/env/bin/activate
+TAIP_SHOW=0 python3 main-TAIP.py
 ```
 
-Only one process can open the camera: stop `main.py` before running `detect_oakd.py`.
+Bench test of the model alone, prints detections: `python3 -m TAIP.detect_oakd`.
+Only one process can open the camera: stop `main-TAIP.py` before running it.
 
-## How main.py uses it
+`main-TAIP.py` prints the OAK-D chip temperature every 30 s. The camera has no
+fan and shuts down above 105 C; give it airflow on the bench. Rates can be
+lowered with `TAIP_CAMERA_FPS` (default 10) and `TAIP_NN_FPS` (default 5).
+
+## How main-TAIP.py uses it
 
 One camera, two outputs: 640x480 for ArUco (matches the calibration files),
 WVS and display, and 640x640 stretched for YOLO (the same resize used in

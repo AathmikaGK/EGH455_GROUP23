@@ -4,7 +4,14 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 import config
-from EDM.drill_controller import activate_drill
+
+# EDM/ sits in the repo root, one level above WVS/; put the root on the path so
+# this import also works when WVS is started from inside WVS/
+# (python3 app.py, or gunicorn in deploy/wvs.service)
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from EDM.drill_controller import activate_drill  # noqa: E402
 from db import store
 from ingestion import checks, writer
 from live import bus
