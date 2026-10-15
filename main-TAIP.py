@@ -15,6 +15,7 @@ import cv2
 import depthai as dai
 import numpy as np
 import os
+import threading
 import time
 
 
@@ -38,6 +39,36 @@ TEMP_WARN_C = 95.0
 MIN_GAUGE_CROP = 40
 
 BOX_COLOURS = {"open": (0, 200, 0), "closed": (0, 0, 255), "gauge": (255, 160, 0)}
+
+
+class FrameSender:
+    """
+    Sends frames to WVS from a background thread so the camera loop never
+    waits on the upload (WVS decodes, draws, re-encodes and saves each frame
+    before it replies). Holds only the newest frame: if WVS is slower than
+    the camera, older frames are dropped instead of queuing up delay.
+    """
+
+    def __init__(self):
+        self.pending = None
+        self.ready = threading.Condition()
+        self.sent = 0
+        threading.Thread(target=self.run, name="wvs-sender", daemon=True).start()
+
+    def put(self, frame, targets, captured_at):
+        with self.ready:
+            self.pending = (frame, targets, captured_at)
+            self.ready.notify()
+
+    def run(self):
+        while True:
+            with self.ready:
+                while self.pending is None:
+                    self.ready.wait()
+                frame, targets, captured_at = self.pending
+                self.pending = None
+            send_frame_to_webviz(frame, targets, captured_at)
+            self.sent += 1
 
 
 def read_gauges(frame, targets):
@@ -98,6 +129,9 @@ def main():
     last_temp_log = float("-inf")
     detections = []
     drill = DrillTrigger()
+    sender = FrameSender()
+    loops = 0
+    last_rates = (time.monotonic(), 0, 0)
 
     # OAK-D Lite camera setup: one camera, two outputs
     #   640x480 frames for ArUco (calibrated size), WVS and display
@@ -132,12 +166,19 @@ def main():
                     chip_c = device.getChipTemperature().average
                     print("[OAK-D] chip temperature %.0f C%s" % (
                         chip_c, "  -- TOO HOT, check airflow" if chip_c >= TEMP_WARN_C else ""))
+                    # loop rate vs frames actually delivered to WVS since the last log
+                    then, loops_then, sent_then = last_rates
+                    span = max(time.monotonic() - then, 1e-6)
+                    print("[TAIP] loop %.1f fps, sent to WVS %.1f fps" % (
+                        (loops - loops_then) / span, (sender.sent - sent_then) / span))
+                    last_rates = (time.monotonic(), loops, sender.sent)
                     last_temp_log = time.monotonic()
 
                 # Get camera frame
                 frame_data = rgb_queue.get()
                 frame = frame_data.getCvFrame()
                 captured_at = time.time()
+                loops += 1
 
                 # ponytail: newest YOLO result is paired with this frame, may be
                 # one frame apart; sync on sequence numbers if boxes visibly lag
@@ -167,7 +208,7 @@ def main():
 
                 # Send the clean frame and every target to WVS; WVS draws the boxes
                 if time.monotonic() - last_frame_sent >= FRAME_INTERVAL_SECONDS:
-                    send_frame_to_webviz(frame, marker_data + yolo_targets, captured_at)
+                    sender.put(frame, marker_data + yolo_targets, captured_at)
                     last_frame_sent = time.monotonic()
 
                 if SHOW_WINDOW:
