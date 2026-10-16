@@ -2,7 +2,7 @@
 TAIP process: OAK-D Lite -> ArUco pose + YOLO valves/gauges + gauge reading -> WVS.
 
 Runs alongside main.py (air quality, LCD) and the WVS web server:
-    TAIP_SHOW=0 python3 main-TAIP.py
+    python3 main-TAIP.py
 Air quality is not read here, so the two processes never share the
 Enviro+ sensors or LCD.
 """
@@ -15,15 +15,20 @@ import cv2
 import depthai as dai
 import numpy as np
 import os
+import sys
 import threading
 import time
 
+# print line by line even when piped (e.g. into tee), no need for python3 -u
+sys.stdout.reconfigure(line_buffering=True)
 
-# camera frame + targets to WVS /api/ingest/frame
-FRAME_INTERVAL_SECONDS = float(os.environ.get("WVS_FRAME_INTERVAL", "0.25"))
 
-# TAIP_SHOW=0 for headless runs (SSH without X, systemd on the drone)
-SHOW_WINDOW = os.environ.get("TAIP_SHOW", "1") != "0"
+# camera frame + targets to WVS /api/ingest/frame. 0 = every frame; the
+# background sender drops frames if WVS is slower, so this never adds delay
+FRAME_INTERVAL_SECONDS = float(os.environ.get("WVS_FRAME_INTERVAL", "0"))
+
+# headless by default (SSH, systemd on the drone); TAIP_SHOW=1 opens a window
+SHOW_WINDOW = os.environ.get("TAIP_SHOW", "0") == "1"
 
 FRAME_SIZE = (640, 480)  # matches the ArUco calibration files
 

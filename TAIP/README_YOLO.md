@@ -52,7 +52,7 @@ python3 main.py
 
 # 3. camera: ArUco + YOLO + gauge reading -> WVS
 source ~/enviroplus/env/bin/activate
-TAIP_SHOW=0 python3 main-TAIP.py
+python3 main-TAIP.py
 ```
 
 Bench test of the model alone, prints detections: `python3 -m TAIP.detect_oakd`.
@@ -75,7 +75,9 @@ WVS and display, and 640x640 stretched for YOLO (the same resize used in
 training). Both keep the full field of view, so YOLO boxes scale straight
 onto the 640x480 frame. Each frame's targets (ArUco markers, valves with
 `valve_state`, gauges with `gauge_value`) go to `POST /api/ingest/frame`
-every `WVS_FRAME_INTERVAL` seconds (default 0.25).
+every frame by default (`WVS_FRAME_INTERVAL`, default 0); a background
+sender drops frames if WVS is slower, so this never adds delay.
+`TAIP_SHOW=1` opens a local preview window.
 
 WVS rejects a gauge without a value, so a gauge whose needle can't be read is
 left out of that frame.
