@@ -128,6 +128,32 @@ Requirement: a 15 mm deep × 15 mm wide hole, then retract to the start. **Calib
 
 Switching screens: wave a hand over the proximity sensor, or use the dashboard's **Payload LCD** menu (`GET /api/lcd`, polled every 2 s). The detection screen, `show_taq_feed()` at line 282, shows `GET /video_snapshot.jpg` from WVS three times a second, with the boxes drawn.
 
+### 4.1 How the live detection feed reaches the LCD
+
+The LCD doesn't read the camera, because only one program can open it. It shows the newest frame that `main-TAIP.py` sent to the web server.
+
+| Step | Where | What happens |
+|---|---|---|
+| 1 | `main-TAIP.py`, `FrameSender` (line 49) | Each camera frame and its targets (valve, gauge, ArUco) are posted to `POST /api/ingest/frame` |
+| 2 | `WVS/api/routes.py:263`, `/api/ingest/frame` | WVS draws the boxes and labels on the frame (`frames.draw_targets()`) and keeps it as the newest frame |
+| 3 | `WVS/video/feed.py:55`, `/video_snapshot.jpg` | Returns that frame as a JPEG, or `503` if no frame arrived in the last 5 s |
+| 4 | `main.py` loop | Calls `display_controller.update(reading)` about 10 times a second |
+| 5 | `AQ/display_controller.py:88`, `update()` | On screen 2 ("detection"), calls `show_taq_feed()` |
+| 6 | `AQ/display_controller.py:282`, `show_taq_feed()` | Every 0.3 s (`TAQ_FRAME_SECONDS`), fetches `TAQ_FRAME_URL` (line 21, `http://127.0.0.1:8000/video_snapshot.jpg`), fits it to 160×80 and draws it |
+
+Inside `show_taq_feed()`:
+
+- **`urlopen(TAQ_FRAME_URL, timeout=0.5)`** fetches the frame. The 0.5 s timeout stops a slow web server from freezing the sensor loop.
+- **`frame.thumbnail((self.width, self.height))`** shrinks it to fit 160×80, keeping its aspect ratio.
+- **`self.image.paste(...)`, then `self.display.display(self.image)`** centre it on black and send it to the ST7735.
+- **If the fetch fails** (web server down, or no live frame), `show_taq_placeholder()` shows "TAQ Feed Unavailable".
+
+The LCD shows "TAQ Feed Unavailable" when:
+
+- the web server (window 1) isn't running,
+- `main-TAIP.py` (window 3) isn't sending frames, or
+- the `main.py` running is the older copy from `UAVTAQ-PAYLOAD`, which only has the placeholder.
+
 ---
 
 ## 5. Web server (WVS)
@@ -291,6 +317,7 @@ curl -s localhost:8000/api/status | python3 -m json.tool | head -30
 | Feed shows one frame, then nothing | Camera outputs at different rates | Don't set different rates; use `TAIP_CAMERA_FPS` only |
 | `GPIO9 ... claimed by main-st7735-dc` | Another `main.py` has the LCD | `pkill -f "UAVTAQ-PAYLOAD/main.py"`, then start `main.py` again |
 | No live feed on dashboard | `main-TAIP.py` not running, or WVS not running | Start window 1 first, then window 3 |
+| LCD shows "TAQ Feed Unavailable" | No live frame in WVS, or old `main.py` running | See section 4.1 |
 | `Connection refused` on port 8000 | WVS not running | Start window 1 |
 | `No module named 'bme280'` | Wrong environment | `source ~/enviroplus/env/bin/activate` |
 | `source~/...: No such file` | Missing space after `source` | `source ~/enviroplus/...` |
