@@ -11,7 +11,9 @@ Images that end up with no boxes stay as negatives (empty label file).
 import sys
 from pathlib import Path
 
-RENAME = {"Valve Open": "valve_open", "Valve Close": "valve_closed", "Gauge": "gauge"}
+RENAME = {"Valve Open": "valve_open", "Valve Close": "valve_closed", "Gauge": "gauge",
+          # names used by images cloned from another Roboflow project (Oct 2026)
+          "open_valve": "valve_open", "closed_valve": "valve_closed"}
 TARGET = ["valve_open", "valve_closed", "gauge"]
 
 
@@ -53,4 +55,6 @@ if __name__ == "__main__":
         names = ["Fire-extinguisher", "Gauge", "Valve Close", "Valve Open"]
         got = remap_lines(["0 .5 .5 .1 .1", "1 .2 .2 .1 .1", "2 .3 .3 .1 .1", "3 .4 .4 .1 .1"], names)
         assert got == ["2 .2 .2 .1 .1", "1 .3 .3 .1 .1", "0 .4 .4 .1 .1"], got
+        got = remap_lines(["0 .5 .5 .1 .1", "1 .6 .6 .1 .1"], ["closed_valve", "open_valve"])
+        assert got == ["1 .5 .5 .1 .1", "0 .6 .6 .1 .1"], got
         print("self-check ok")

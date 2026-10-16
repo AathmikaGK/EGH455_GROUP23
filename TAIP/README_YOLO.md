@@ -2,18 +2,24 @@
 
 YOLOv5s, 3 classes (`valve_open`, `valve_closed`, `gauge`), runs on the OAK-D
 Lite VPU (no Pi CPU inference). Trained at 640x640 on Roboflow
-`egh455-epcw7-vi0yr` v3, 100 epochs.
+`egh455-epcw7-vi0yr` v4 "real-data-v3 (new valves, no FE)" (extra open/closed
+valve images, fire extinguisher images removed), 100 epochs.
 
-Held-out test split (159 images, never used in training):
+Held-out test split (97 images, never used in training):
 
 | Class | mAP50 | mAP50-95 |
 |---|---|---|
-| all | 0.982 | 0.716 |
-| valve_open | 0.995 | 0.620 |
-| valve_closed | 0.955 | 0.585 |
-| gauge | 0.995 | 0.943 |
+| all | 0.985 | 0.720 |
+| valve_open | 0.995 | 0.612 |
+| valve_closed | 0.964 | 0.626 |
+| gauge | 0.995 | 0.921 |
 
-All 28 test gauge boxes come from one video, so the gauge figure is a small sample.
+The new valve images went mostly into the training split, so these numbers say
+little about the demo valves; check those on the Pi. All 28 test gauge boxes
+come from one video, so the gauge figure is a small sample.
+
+Previous model (Roboflow v3, 159 test images): all 0.982 / 0.716,
+valve_closed 0.955 / 0.585.
 
 ## Files
 
