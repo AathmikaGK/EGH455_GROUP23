@@ -84,7 +84,9 @@ left out of that frame.
 
 ## To check / tune on real footage
 
-- `CONFIDENCE_THRESHOLD` in `yolo_detection.py` (0.5). valve_closed has the most false positives.
+- Confidence thresholds in `yolo_detection.py`: valves 0.5 (`TAIP_CONF`), gauge 0.25
+  (`TAIP_GAUGE_CONF`). The blue gauge below ~2 bar scored under 0.5, which also
+  stopped the auto drill; a false gauge box is still dropped unless its needle reads.
 - `BLUE_FRACTION_THRESHOLD` in `gauge_processing.py`: it prints the blue fraction per crop. Set it between the blue and white gauges' values.
 - Gauge crops from a 640x480 frame are small. In synthetic tests, reading worked from about 200 px crops; at 120 px the white gauge failed. If real crops are too small, crop gauges from a higher-res camera output.
 - Blue gauge needle direction: on a synthetic dial at 7 bar, the blue tip/tail check picked the tail and read 0.33 bar. The original code does the same, so this is not new. Worth testing on real blue-gauge frames across the range.

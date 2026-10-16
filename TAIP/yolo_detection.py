@@ -22,7 +22,11 @@ import numpy as np
 BLOB_PATH = str(Path(__file__).parent / "models" / "best_openvino_2022.1_6shave.blob")
 INPUT_SIZE = (640, 640)
 LABELS = ["valve_open", "valve_closed", "gauge"]
-CONFIDENCE_THRESHOLD = 0.5  # tune on live arena footage
+CONFIDENCE_THRESHOLD = float(os.environ.get("TAIP_CONF", "0.5"))  # valves; tune on live arena footage
+# The blue gauge below ~2 bar scores under 0.5 (needle in a pose seen less in
+# training), which also stopped the auto drill. A false gauge box is still
+# dropped unless its dial circle and needle can be read (main-TAIP.read_gauges).
+GAUGE_CONFIDENCE_THRESHOLD = float(os.environ.get("TAIP_GAUGE_CONF", "0.25"))
 IOU_THRESHOLD = 0.5
 ANCHORS = [10, 13, 16, 30, 33, 23, 30, 61, 62, 45, 59, 119, 116, 90, 156, 198, 373, 326]
 ANCHOR_MASKS = {"side80": [0, 1, 2], "side40": [3, 4, 5], "side20": [6, 7, 8]}  # reference only, decode() uses ANCHORS directly
@@ -53,7 +57,8 @@ def decode(heads):
         wh = (o[..., 2:4] * 2) ** 2 * anchors
         conf = o[..., 4:5] * o[..., 5:]
         best, cls = conf.max(-1), conf.argmax(-1)
-        keep = best >= CONFIDENCE_THRESHOLD
+        # per-class threshold: gauge (class 2) is allowed lower than the valves
+        keep = best >= np.where(cls == LABELS.index("gauge"), GAUGE_CONFIDENCE_THRESHOLD, CONFIDENCE_THRESHOLD)
         for (cx, cy), (w, h), score, c in zip(xy[keep], wh[keep], best[keep], cls[keep]):
             boxes.append([float(cx - w / 2), float(cy - h / 2), float(w), float(h)])
             scores.append(float(score))
@@ -65,7 +70,7 @@ def decode(heads):
         if not idx:
             continue
         kept = cv2.dnn.NMSBoxes([boxes[i] for i in idx], [scores[i] for i in idx],
-                                CONFIDENCE_THRESHOLD, IOU_THRESHOLD)
+                                0.0, IOU_THRESHOLD)  # already thresholded per class above
         for k in np.array(kept).flatten():
             x, y, w, h = boxes[idx[k]]
             detections.append(SimpleNamespace(
