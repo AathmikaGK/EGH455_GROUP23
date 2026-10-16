@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+static/vendor/*.js
+static/vendor/*.woff2
+frames/
+*.log
+captures/
+examples/test_frame.jpg
